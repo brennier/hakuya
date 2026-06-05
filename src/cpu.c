@@ -22,8 +22,8 @@ enum HakuyaRegisterAlias {
 
 struct HakuyaCPU {
 	uint32_t pc;
-	uint32_t high;
-	uint32_t low;
+	uint32_t hi;
+	uint32_t lo;
 	uint32_t regs[32];
 };
 
@@ -61,25 +61,61 @@ void cpu_reset(struct HakuyaCPU *cpu) {
 
 void cpu_print(struct HakuyaCPU *cpu) {
 	printf("PC: %08X\n", cpu->pc);
-	for (int i = 0; i < 32; i++) {
-		printf("R%02d = %08X\n", i, cpu->regs[i]);
+	for (int i = 0; i < 32; i += 4) {
+		printf("R%02d = %08X  R%02d = %08X  R%02d = %08X  R%02d = %08X\n",
+		       i+0, cpu->regs[i+0], i+1, cpu->regs[i+1],
+		       i+2, cpu->regs[i+2], i+3, cpu->regs[i+3]);
 	}
+	printf("\n");
+}
+
+static uint32_t op_get_opcode(uint32_t instruction) {
+	return instruction >> 26;
+}
+
+static uint32_t op_get_target(uint32_t instruction) {
+	return (instruction >> 16) & 0x1F;
+}
+
+static uint32_t op_get_source(uint32_t instruction) {
+	return (instruction >> 21) & 0x1F;
+}
+
+static uint32_t op_get_immediate(uint32_t instruction) {
+	return instruction & 0xFFFF;
 }
 
 static inline void op_lui(struct HakuyaCPU *cpu, uint32_t instruction) {
-	uint32_t immediate = instruction & 0xFFFF;
-	uint32_t reg_index = (instruction >> 16) & 0x1F;
+	uint32_t immediate = op_get_immediate(instruction);
+	uint32_t target    = op_get_target(instruction);
+	cpu->regs[target] = (immediate << 16);
+}
 
-	cpu->regs[reg_index] &= 0x0000FFFF;
-	cpu->regs[reg_index] |= (immediate << 16);
+static inline void op_ori(struct HakuyaCPU *cpu, uint32_t instruction) {
+	uint32_t immediate = op_get_immediate(instruction);
+	uint32_t target    = op_get_target(instruction);
+	uint32_t source    = op_get_source(instruction);
+	cpu->regs[target] = (cpu->regs[source] | immediate);
+}
+
+static inline void op_sw(struct HakuyaCPU *cpu, uint32_t instruction) {
+	uint32_t immediate = op_get_immediate(instruction);
+	uint32_t target    = op_get_target(instruction);
+	uint32_t source    = op_get_source(instruction);
+	uint32_t address   = cpu->regs[source] + immediate;
+	uint32_t value     = cpu->regs[target];
+
+	/* mmu_store32(address, target); */
 }
 
 static void decode_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
-	uint32_t op = instruction >> 26;
+	uint32_t opcode = op_get_opcode(instruction);
 
-	switch (op) {
+	switch (opcode) {
 
+	case 0x0D: op_ori(cpu, instruction); break;
 	case 0x0F: op_lui(cpu, instruction); break;
+	case 0x2B: op_sw(cpu, instruction);  break;
 	default:   PANIC("Unimplemented instruction: 0x%08X", instruction);
 	}
 }

@@ -33,7 +33,34 @@ struct HakuyaCPU {
 	uint32_t regs[32];
 	uint32_t next_instruction;
 	uint32_t cop0_regs[32];
+	struct {
+		uint32_t reg; // if 0, then no pending load
+		uint32_t value;
+	} pending_load[2];
 };
+
+void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
+	if (reg == 0) return;
+
+	if (cpu->pending_load[0].reg == reg) {
+		cpu->pending_load[0].value = value;
+	} else {
+		cpu->regs[reg] = value;
+	}
+}
+
+void cpu_reg_set_pending(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
+	cpu->pending_load[1].reg = reg;
+	cpu->pending_load[1].value = value;
+}
+
+void advance_pending_loads(struct HakuyaCPU *cpu) {
+	if (cpu->pending_load[0].reg > 0) {
+		cpu->regs[cpu->pending_load[0].reg] = cpu->pending_load[0].value;
+	}
+	cpu->pending_load[0] = cpu->pending_load[1];
+	memset(cpu->pending_load + 1, 0, sizeof(cpu->pending_load[1]));
+}
 
 uint8_t mmu_read8(uint32_t address) {
 	if ((address & 0xFFF00000) == BIOS_START) {
@@ -176,20 +203,20 @@ static inline void op_sll(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t i = op_get_shift_immediate(instruction);
 	uint32_t t = op_get_target(instruction);
 	uint32_t d = op_get_destination(instruction);
-	cpu->regs[d] = (cpu->regs[t] << i);
+	cpu_reg_set(cpu, d, cpu->regs[t] << i);
 }
 
 static inline void op_lui(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t i = op_get_immediate(instruction);
 	uint32_t t = op_get_target(instruction);
-	cpu->regs[t] = (i << 16);
+	cpu_reg_set(cpu, t, i << 16);
 }
 
 static inline void op_ori(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t i = op_get_immediate(instruction);
 	uint32_t t = op_get_target(instruction);
 	uint32_t s = op_get_source(instruction);
-	cpu->regs[t] = (cpu->regs[s] | i);
+	cpu_reg_set(cpu, t, cpu->regs[s] | i);
 }
 
 static inline void op_sw(struct HakuyaCPU *cpu, uint32_t instruction) {
@@ -205,6 +232,21 @@ static inline void op_sw(struct HakuyaCPU *cpu, uint32_t instruction) {
 	mmu_store32(address, value);
 }
 
+static inline void op_lw(struct HakuyaCPU *cpu, uint32_t instruction) {
+	int32_t  i = op_get_immediate_signed(instruction);
+	uint32_t t = op_get_target(instruction);
+	uint32_t s = op_get_source(instruction);
+	uint32_t address = cpu->regs[s] + i;
+
+	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		return;
+	}
+
+	printf("lw $%d, %d($%d)\n", t, i, s);
+	cpu_reg_set_pending(cpu, t, mmu_read32(address));
+}
+
 static inline void op_addi(struct HakuyaCPU *cpu, uint32_t instruction) {
 	int32_t  i = op_get_immediate_signed(instruction);
 	uint32_t t = op_get_target(instruction);
@@ -215,21 +257,21 @@ static inline void op_addi(struct HakuyaCPU *cpu, uint32_t instruction) {
 	    (x < 0 && i < INT_MIN - x)) {
 		PANIC("Addition between %08X and %08X cause an overflow!", x, i);
 	}
-	cpu->regs[t] = x + i;
+	cpu_reg_set(cpu, t, x + i);
 }
 
 static inline void op_addiu(struct HakuyaCPU *cpu, uint32_t instruction) {
 	int32_t  i = op_get_immediate_signed(instruction);
 	uint32_t t = op_get_target(instruction);
 	uint32_t s = op_get_source(instruction);
-	cpu->regs[t] = cpu->regs[s] + i;
+	cpu_reg_set(cpu, t, cpu->regs[s] + i);
 }
 
 static inline void op_or(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t s = op_get_source(instruction);
 	uint32_t t = op_get_target(instruction);
 	uint32_t d = op_get_destination(instruction);
-	cpu->regs[d] = (cpu->regs[s] | cpu->regs[t]);
+	cpu_reg_set(cpu, d, cpu->regs[s] | cpu->regs[t]);
 }
 
 static void decode_subfunction(struct HakuyaCPU *cpu, uint32_t instruction) {
@@ -270,14 +312,14 @@ static void decode_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x10: op_cop0(cpu, instruction);  break;
 	case 0x0D: op_ori(cpu, instruction); break;
 	case 0x0F: op_lui(cpu, instruction); break;
+	case 0x23: op_lw(cpu, instruction);  break;
 	case 0x2B: op_sw(cpu, instruction);  break;
 	default:   PANIC("Unimplemented instruction: 0x%08X", instruction);
 	}
-
-	cpu->regs[0] = 0;
 }
 
 void run_next_instruction(struct HakuyaCPU *cpu) {
+	advance_pending_loads(cpu);
 	uint32_t instruction = cpu->next_instruction;
 	cpu->next_instruction = mmu_read32(cpu->pc);
 	cpu->pc += 4;

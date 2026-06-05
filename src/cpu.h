@@ -6,6 +6,7 @@ struct HakuyaCPU;
 struct HakuyaCPU *cpu_init(void);
 void cpu_free(struct HakuyaCPU *cpu);
 
+void cpu_print(struct HakuyaCPU *cpu);
 void cpu_reset(struct HakuyaCPU *cpu);
 void run_next_instruction(struct HakuyaCPU *cpu);
 

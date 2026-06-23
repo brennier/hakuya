@@ -13,6 +13,7 @@
 #define MEM_CONTROL_START 0x1F801000
 #define MEM_CONTROL_SIZE  36
 #define BIOS_START 0xBFC00000
+#define RAM_START  0xA0000000
 #define BIOS_SIZE  (512u * 1024u)
 #define RAM_SIZE_CONTROL 0x1F801060
 #define CACHE_CONTROL 0xFFFE0130
@@ -62,13 +63,26 @@ void advance_pending_loads(struct HakuyaCPU *cpu) {
 	memset(cpu->pending_load + 1, 0, sizeof(cpu->pending_load[1]));
 }
 
-uint8_t mmu_read8(uint32_t address) {
-	if ((address & 0xFFF00000) == BIOS_START) {
-		return bios_read(address - BIOS_START);
-	}
+uint8_t ram[2 * 1024 * 1024] = { 0 };
 
-	fprintf(stderr, "Unimplemented address %08X\n", address);
-	exit(EXIT_FAILURE);
+uint8_t ram_read(uint32_t address) {
+	assert(address < 2 * 1024 * 1024);
+	return ram[address];
+}
+
+void ram_store(uint32_t address, uint8_t value) {
+	assert(address < 2 * 1024 * 1024);
+	ram[address] = value;
+}
+
+uint8_t mmu_read8(uint32_t address) {
+	switch (address & 0xFFC00000) {
+	case BIOS_START: return bios_read(address - BIOS_START);
+	case RAM_START:  return ram_read(address - RAM_START);
+	default:
+		fprintf(stderr, "Unimplemented address %08X\n", address);
+		exit(EXIT_FAILURE);
+	}
 }
 
 void mmu_store8(uint32_t address, uint8_t value) {
@@ -87,7 +101,12 @@ void mmu_store8(uint32_t address, uint8_t value) {
 		return;
 	}
 
-	PANIC("Unhandled store at address %08X\n", address);
+	switch (address & 0xFFC00000) {
+	case RAM_START: ram_store(address - RAM_START, value); break;
+	default:
+		fprintf(stderr, "Unimplemented address %08X\n", address);
+		exit(EXIT_FAILURE);
+	}
 }
 
 uint32_t mmu_read32(uint32_t address) {

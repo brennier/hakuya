@@ -156,44 +156,44 @@ void cpu_print(struct HakuyaCPU *cpu) {
 	printf("\n");
 }
 
-static uint32_t op_get_opcode(uint32_t instruction) {
+static inline uint32_t op_get_opcode(uint32_t instruction) {
 	return instruction >> 26;
 }
 
-static uint32_t op_get_source(uint32_t instruction) {
+static inline uint32_t op_get_source(uint32_t instruction) {
 	return (instruction >> 21) & 0x1F;
 }
 
-static uint32_t op_get_cop_opcode(uint32_t instruction) {
+static inline uint32_t op_get_cop_opcode(uint32_t instruction) {
 	return (instruction >> 21) & 0x1F;
 }
 
-static uint32_t op_get_target(uint32_t instruction) {
+static inline uint32_t op_get_target(uint32_t instruction) {
 	return (instruction >> 16) & 0x1F;
 }
 
-static uint32_t op_get_destination(uint32_t instruction) {
+static inline uint32_t op_get_destination(uint32_t instruction) {
 	return (instruction >> 11) & 0x1F;
 }
 
-static uint32_t op_get_immediate(uint32_t instruction) {
+static inline uint32_t op_get_immediate(uint32_t instruction) {
 	return instruction & 0xFFFF;
 }
 
-static int32_t op_get_immediate_signed(uint32_t instruction) {
+static inline int32_t op_get_immediate_signed(uint32_t instruction) {
 	int16_t immediate = instruction & 0xFFFF;
 	return (int32_t)immediate;
 }
 
-static int32_t op_get_immediate_jump(uint32_t instruction) {
+static inline int32_t op_get_immediate_jump(uint32_t instruction) {
 	return instruction & 0x03FFFFFF;
 }
 
-static int32_t op_get_subfunction(uint32_t instruction) {
+static inline int32_t op_get_subfunction(uint32_t instruction) {
 	return instruction & 0x3F;
 }
 
-static int32_t op_get_shift_immediate(uint32_t instruction) {
+static inline int32_t op_get_shift_immediate(uint32_t instruction) {
 	return (instruction >> 6) & 0x1F;
 }
 
@@ -286,6 +286,13 @@ static inline void op_addiu(struct HakuyaCPU *cpu, uint32_t instruction) {
 	cpu_reg_set(cpu, t, cpu->regs[s] + i);
 }
 
+static inline void op_addu(struct HakuyaCPU *cpu, uint32_t instruction) {
+	uint32_t s = op_get_source(instruction);
+	uint32_t t = op_get_target(instruction);
+	uint32_t d = op_get_destination(instruction);
+	cpu_reg_set(cpu, d, cpu->regs[s] + cpu->regs[t]);
+}
+
 static inline void op_or(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t s = op_get_source(instruction);
 	uint32_t t = op_get_target(instruction);
@@ -293,12 +300,21 @@ static inline void op_or(struct HakuyaCPU *cpu, uint32_t instruction) {
 	cpu_reg_set(cpu, d, cpu->regs[s] | cpu->regs[t]);
 }
 
+static inline void op_sltu(struct HakuyaCPU *cpu, uint32_t instruction) {
+	uint32_t s = op_get_source(instruction);
+	uint32_t t = op_get_target(instruction);
+	uint32_t d = op_get_destination(instruction);
+	cpu_reg_set(cpu, d, cpu->regs[s] < cpu->regs[t]);
+}
+
 static void decode_subfunction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t subfunc = op_get_subfunction(instruction);
 
 	switch (subfunc) {
 	case 0x00: op_sll(cpu, instruction); break;
+	case 0x21: op_addu(cpu, instruction); break;
 	case 0x25: op_or(cpu, instruction);  break;
+	case 0x2B: op_sltu(cpu, instruction); break;
 	default:   PANIC("Unimplemented subfunction: 0x%08X", instruction);
 	}
 }
@@ -333,7 +349,7 @@ static void decode_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x0F: op_lui(cpu, instruction); break;
 	case 0x23: op_lw(cpu, instruction);  break;
 	case 0x2B: op_sw(cpu, instruction);  break;
-	default:   PANIC("Unimplemented instruction: 0x%08X", instruction);
+	default: PANIC("Unimplemented instruction: 0x%08X", instruction);
 	}
 }
 

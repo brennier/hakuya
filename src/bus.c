@@ -6,6 +6,20 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+static uint8_t ram[2 * 1024 * 1024] = { 0 };
+
+static inline uint32_t ram_read(uint32_t address, int bytes) {
+	uint32_t value = 0;
+	for (int i = 0; i < bytes; i++)
+		value |= (uint32_t)(ram[address + i]) << (8 * i);
+	return value;
+}
+
+static inline void ram_write(uint32_t address, uint32_t value, int bytes) {
+	for (int i = 0; i < bytes; i++)
+		ram[address + i] = (uint8_t)(value >> (8 * i));
+}
+
 typedef struct {
 	uint32_t start;
 	uint32_t size;
@@ -19,18 +33,6 @@ static const MemoryRange CACHE_CTRL = { 0xFFFE0130, 4 };
 
 static inline bool range_contains(MemoryRange range, uint32_t address) {
 	return (address >= range.start && address < range.start + range.size);
-}
-
-uint8_t ram[2 * 1024 * 1024] = { 0 };
-
-uint8_t ram_read(uint32_t address) {
-	assert(address < 2 * 1024 * 1024);
-	return ram[address];
-}
-
-void ram_write(uint32_t address, uint8_t value) {
-	assert(address < 2 * 1024 * 1024);
-	ram[address] = value;
 }
 
 static inline uint32_t bus_strip_region_bits(uint32_t address) {
@@ -48,54 +50,36 @@ static inline uint32_t bus_strip_region_bits(uint32_t address) {
 	PANIC("%s", "Unreachable path");
 }
 
-uint8_t bus_read8(uint32_t address) {
+static inline uint32_t bus_read(uint32_t address, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
 	if (range_contains(RAM, phys_address))
-		return ram_read(phys_address - RAM.start);
+		return ram_read(phys_address - RAM.start, bytes);
 	if (range_contains(BIOS, phys_address))
-		return bios_read(phys_address - BIOS.start);
+		return bios_read(phys_address - BIOS.start, bytes);
 
 	PANIC("Unimplemented read at address %08X\n", address);
 }
 
-void bus_write8(uint32_t address, uint8_t value) {
+static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
 	if (range_contains(RAM, phys_address))
-		ram_write(phys_address - RAM.start, value);
+		ram_write(phys_address - RAM.start, value, bytes);
 	else if (range_contains(MEM_CTRL, phys_address))
-		fprintf(stderr, "[WARNING] Write to MEM_CONTROL at %08X\n", address);
+		fprintf(stderr, "[WARNING] Ignored write%d to MEM_CTRL at %08X = %08X\n", bytes * 8, address, value);
 	else if (range_contains(RAM_SIZE, phys_address))
-		fprintf(stderr, "[WARNING] Write to RAM_SIZE at %08X\n", address);
+		fprintf(stderr, "[WARNING] Ignored write%d to RAM_SIZE at %08X = %08X\n", bytes * 8, address, value);
 	else if (range_contains(CACHE_CTRL, phys_address))
-		fprintf(stderr, "[WARNING] Write to CACHE_CONTROL at %08X\n", address);
+		fprintf(stderr, "[WARNING] Ignored write%d to CACHE_CTRL at %08X = %08X\n", bytes * 8, address, value);
 	else
 		PANIC("Unimplemented write at address %08X\n", address);
 }
 
-uint32_t bus_read32(uint32_t address) {
-	uint32_t byte0 = bus_read8(address+0);
-	uint32_t byte1 = bus_read8(address+1);
-	uint32_t byte2 = bus_read8(address+2);
-	uint32_t byte3 = bus_read8(address+3);
-	return (byte3 << 24) | (byte2 << 16) | (byte1 << 8) | byte0;
-}
+uint8_t  bus_read8 (uint32_t address) { return bus_read(address, 1); }
+uint16_t bus_read16(uint32_t address) { return bus_read(address, 2); }
+uint32_t bus_read32(uint32_t address) { return bus_read(address, 4); }
 
-void bus_write16(uint32_t address, uint16_t value) {
-	fprintf(stderr, "[WARNING] Write to %08X\n", address);
-	bus_write8(address+0, value & 0xFF);
-	value >>= 8;
-	bus_write8(address+1, value & 0xFF);
-}
-
-void bus_write32(uint32_t address, uint32_t value) {
-	fprintf(stderr, "[WARNING] Write to %08X\n", address);
-	bus_write8(address+0, value & 0xFF);
-	value >>= 8;
-	bus_write8(address+1, value & 0xFF);
-	value >>= 8;
-	bus_write8(address+2, value & 0xFF);
-	value >>= 8;
-	bus_write8(address+3, value & 0xFF);
-}
+void bus_write8 (uint32_t address, uint8_t  value) { bus_write(address, value, 1); }
+void bus_write16(uint32_t address, uint16_t value) { bus_write(address, value, 2); }
+void bus_write32(uint32_t address, uint32_t value) { bus_write(address, value, 4); }

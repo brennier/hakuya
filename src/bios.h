@@ -4,6 +4,6 @@
 #include <stdint.h>
 
 void bios_load(const char *filepath);
-uint8_t bios_read(uint32_t offset);
+uint32_t bios_read(uint32_t offset, int bytes);
 
-#endif // HAGKUYA_BIOS_H
+#endif // HAKUYA_BIOS_H

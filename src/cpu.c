@@ -7,16 +7,10 @@
 #include <assert.h>
 #include <limits.h>
 
-#include "bios.h"
+#include "bus.h"
 #include "debug.h"
 
-#define MEM_CONTROL_START 0x1F801000
-#define MEM_CONTROL_SIZE  36
 #define BIOS_START 0x1FC00000
-#define RAM_START  0x00000000
-#define BIOS_SIZE  (512u * 1024u)
-#define RAM_SIZE_CONTROL 0x1F801060
-#define CACHE_CONTROL 0xFFFE0130
 
 enum HakuyaRegisterAlias {
 	REG_ZERO = 0,  // Always zero
@@ -60,90 +54,6 @@ void advance_pending_loads(struct HakuyaCPU *cpu) {
 	}
 	cpu->pending_load[0] = cpu->pending_load[1];
 	memset(&cpu->pending_load[1], 0, sizeof(cpu->pending_load[1]));
-}
-
-uint8_t ram[2 * 1024 * 1024] = { 0 };
-
-uint8_t ram_read(uint32_t address) {
-	assert(address < 2 * 1024 * 1024);
-	return ram[address];
-}
-
-void ram_store(uint32_t address, uint8_t value) {
-	assert(address < 2 * 1024 * 1024);
-	ram[address] = value;
-}
-
-uint32_t mmu_strip_region_bits(uint32_t address) {
-	switch (address >> 29) {
-	case 0: case 1: case 2: case 3:
-		return address & 0xFFFFFFFF;
-	case 4:
-		return address & 0x7FFFFFFF;
-	case 5:
-		return address & 0x1FFFFFFF;
-	case 6: case 7:
-		return address & 0xFFFFFFFF;
-	}
-	PANIC("Unreachable path: %08X", address);
-}
-
-uint8_t mmu_read8(uint32_t address) {
-	address = mmu_strip_region_bits(address);
-	switch (address & 0xFFC00000) {
-	case BIOS_START: return bios_read(address - BIOS_START);
-	case RAM_START:  return ram_read(address - RAM_START);
-	default:
-		fprintf(stderr, "Unimplemented address %08X\n", address);
-		exit(EXIT_FAILURE);
-	}
-}
-
-void mmu_store8(uint32_t address, uint8_t value) {
-	address = mmu_strip_region_bits(address);
-	if (address >= MEM_CONTROL_START && address < MEM_CONTROL_START + MEM_CONTROL_SIZE) {
-		fprintf(stderr, "[WARNING] Write to MEM_CONTROL at %08X\n", address);
-		return;
-	}
-
-	if (address >= RAM_SIZE_CONTROL && address < RAM_SIZE_CONTROL + 4) {
-		fprintf(stderr, "[WARNING] Write to RAM_SIZE_CONTROL at %08X\n", address);
-		return;
-	}
-
-	if (address >= CACHE_CONTROL && address < CACHE_CONTROL + 4) {
-		fprintf(stderr, "[WARNING] Write to CACHE_CONTROL at %08X\n", address);
-		return;
-	}
-
-	switch (address & 0xFFC00000) {
-	case RAM_START: ram_store(address - RAM_START, value); break;
-	default:
-		fprintf(stderr, "Unimplemented address %08X\n", address);
-		exit(EXIT_FAILURE);
-	}
-}
-
-uint32_t mmu_read32(uint32_t address) {
-	assert(address % 4 == 0);
-	uint32_t byte0 = mmu_read8(address+0);
-	uint32_t byte1 = mmu_read8(address+1);
-	uint32_t byte2 = mmu_read8(address+2);
-	uint32_t byte3 = mmu_read8(address+3);
-	return (byte3 << 24) | (byte2 << 16) | (byte1 << 8) | byte0;
-}
-
-void mmu_store32(uint32_t address, uint32_t value) {
-	fprintf(stderr, "[WARNING] Write to %08X\n", address);
-	assert(address % 4 == 0);
-	mmu_store8(address+0, value & 0xFF);
-	value >>= 8;
-	mmu_store8(address+1, value & 0xFF);
-	value >>= 8;
-	mmu_store8(address+2, value & 0xFF);
-	value >>= 8;
-	mmu_store8(address+3, value & 0xFF);
-	fprintf(stderr, "\n");
 }
 
 struct HakuyaCPU *cpu_init(void) {
@@ -263,7 +173,7 @@ static inline void op_sw(struct HakuyaCPU *cpu, uint32_t instruction) {
 		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
 		return;
 	}
-	mmu_store32(address, value);
+	bus_write32(address, value);
 }
 
 static inline void op_lw(struct HakuyaCPU *cpu, uint32_t instruction) {
@@ -278,7 +188,7 @@ static inline void op_lw(struct HakuyaCPU *cpu, uint32_t instruction) {
 	}
 
 	printf("lw $%d, %d($%d)\n", t, i, s);
-	cpu_reg_set_pending(cpu, t, mmu_read32(address));
+	cpu_reg_set_pending(cpu, t, bus_read32(address));
 }
 
 static inline void op_addi(struct HakuyaCPU *cpu, uint32_t instruction) {
@@ -371,7 +281,7 @@ static void decode_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 void run_next_instruction(struct HakuyaCPU *cpu) {
 	advance_pending_loads(cpu);
 	uint32_t instruction = cpu->next_instruction;
-	cpu->next_instruction = mmu_read32(cpu->pc);
+	cpu->next_instruction = bus_read32(cpu->pc);
 	cpu->pc += 4;
 
 	decode_instruction(cpu, instruction);

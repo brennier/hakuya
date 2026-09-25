@@ -1,17 +1,25 @@
 #include "bus.h"
 #include "bios.h"
+#include "debug.h"
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
+#include <stdbool.h>
 
-#define MEM_CONTROL_START 0x1F801000
-#define MEM_CONTROL_SIZE  36
-#define BIOS_START 0x1FC00000
-#define RAM_START  0x00000000
-#define BIOS_SIZE  (512u * 1024u)
-#define RAM_SIZE_CONTROL 0x1F801060
-#define CACHE_CONTROL 0xFFFE0130
+typedef struct {
+	uint32_t start;
+	uint32_t size;
+} MemoryRange;
+
+static const MemoryRange RAM        = { 0x00000000, 2 * 1024 * 1024 };
+static const MemoryRange MEM_CTRL   = { 0x1F801000, 36 };
+static const MemoryRange RAM_SIZE   = { 0x1F801060, 4 };
+static const MemoryRange BIOS       = { 0x1FC00000, 512 * 1024 };
+static const MemoryRange CACHE_CTRL = { 0xFFFE0130, 4 };
+
+static inline bool range_contains(MemoryRange range, uint32_t address) {
+	return (address >= range.start && address < range.start + range.size);
+}
 
 uint8_t ram[2 * 1024 * 1024] = { 0 };
 
@@ -25,58 +33,45 @@ void ram_write(uint32_t address, uint8_t value) {
 	ram[address] = value;
 }
 
-static inline void bus_strip_region_bits(uint32_t *address) {
-	switch (*address >> 29) {
+static inline uint32_t bus_strip_region_bits(uint32_t address) {
+	switch (address >> 29) {
 	case 0: case 1: case 2: case 3:
-		// KUSEG: 2 GB
-		*address &= 0xFFFFFFFF; break;
+		return address & 0xFFFFFFFF; // KUSEG: 2 GB
 	case 4:
-		// KSEG0: 512 MB
-		*address &= 0x7FFFFFFF; break;
+		return address & 0x7FFFFFFF; // KSEG0: 512 MB
 	case 5:
-		// KSEG1: 512 MB
-		*address &= 0x1FFFFFFF; break;
+		return address & 0x1FFFFFFF; // KSEG1: 512 MB
 	case 6: case 7:
-		// KSEG2: 1 GB
-		*address &= 0xFFFFFFFF; break;
+		return address & 0xFFFFFFFF; // KSEG2: 1 GB
 	}
+
+	PANIC("%s", "Unreachable path");
 }
 
 uint8_t bus_read8(uint32_t address) {
-	bus_strip_region_bits(&address);
-	switch (address & 0xFFC00000) {
-	case BIOS_START: return bios_read(address - BIOS_START);
-	case RAM_START:  return ram_read(address - RAM_START);
-	default:
-		fprintf(stderr, "Unimplemented address %08X\n", address);
-		exit(EXIT_FAILURE);
-	}
+	uint32_t phys_address = bus_strip_region_bits(address);
+
+	if (range_contains(RAM, phys_address))
+		return ram_read(phys_address - RAM.start);
+	if (range_contains(BIOS, phys_address))
+		return bios_read(phys_address - BIOS.start);
+
+	PANIC("Unimplemented read at address %08X\n", address);
 }
 
 void bus_write8(uint32_t address, uint8_t value) {
-	bus_strip_region_bits(&address);
+	uint32_t phys_address = bus_strip_region_bits(address);
 
-	if (address >= MEM_CONTROL_START && address < MEM_CONTROL_START + MEM_CONTROL_SIZE) {
+	if (range_contains(RAM, phys_address))
+		ram_write(phys_address - RAM.start, value);
+	else if (range_contains(MEM_CTRL, phys_address))
 		fprintf(stderr, "[WARNING] Write to MEM_CONTROL at %08X\n", address);
-		return;
-	}
-
-	if (address >= RAM_SIZE_CONTROL && address < RAM_SIZE_CONTROL + 4) {
-		fprintf(stderr, "[WARNING] Write to RAM_SIZE_CONTROL at %08X\n", address);
-		return;
-	}
-
-	if (address >= CACHE_CONTROL && address < CACHE_CONTROL + 4) {
+	else if (range_contains(RAM_SIZE, phys_address))
+		fprintf(stderr, "[WARNING] Write to RAM_SIZE at %08X\n", address);
+	else if (range_contains(CACHE_CTRL, phys_address))
 		fprintf(stderr, "[WARNING] Write to CACHE_CONTROL at %08X\n", address);
-		return;
-	}
-
-	switch (address & 0xFFC00000) {
-	case RAM_START: ram_write(address - RAM_START, value); break;
-	default:
-		fprintf(stderr, "Unimplemented address %08X\n", address);
-		exit(EXIT_FAILURE);
-	}
+	else
+		PANIC("Unimplemented write at address %08X\n", address);
 }
 
 uint32_t bus_read32(uint32_t address) {

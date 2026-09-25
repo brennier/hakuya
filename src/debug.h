@@ -1,6 +1,8 @@
 #ifndef HAKUYA_DEBUG_H
 #define HAKUYA_DEBUG_H
 
+#include <stdlib.h>
+
 #define PANIC(format, ...) do {						\
 		fprintf(stderr, "Abort in %s() at %s:%d\n"		\
 			"  " format "\n",				\

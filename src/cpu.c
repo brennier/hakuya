@@ -12,8 +12,8 @@
 
 #define MEM_CONTROL_START 0x1F801000
 #define MEM_CONTROL_SIZE  36
-#define BIOS_START 0xBFC00000
-#define RAM_START  0xA0000000
+#define BIOS_START 0x1FC00000
+#define RAM_START  0x00000000
 #define BIOS_SIZE  (512u * 1024u)
 #define RAM_SIZE_CONTROL 0x1F801060
 #define CACHE_CONTROL 0xFFFE0130
@@ -42,11 +42,10 @@ struct HakuyaCPU {
 
 void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
 	if (reg == 0) return;
+	cpu->regs[reg] = value;
 
-	if (cpu->pending_load[0].reg == reg) {
-		cpu->pending_load[0].value = value;
-	} else {
-		cpu->regs[reg] = value;
+	if (reg == cpu->pending_load[0].reg) {
+		cpu->pending_load[0].reg = 0;
 	}
 }
 
@@ -60,7 +59,7 @@ void advance_pending_loads(struct HakuyaCPU *cpu) {
 		cpu->regs[cpu->pending_load[0].reg] = cpu->pending_load[0].value;
 	}
 	cpu->pending_load[0] = cpu->pending_load[1];
-	memset(cpu->pending_load + 1, 0, sizeof(cpu->pending_load[1]));
+	memset(&cpu->pending_load[1], 0, sizeof(cpu->pending_load[1]));
 }
 
 uint8_t ram[2 * 1024 * 1024] = { 0 };
@@ -75,7 +74,22 @@ void ram_store(uint32_t address, uint8_t value) {
 	ram[address] = value;
 }
 
+uint32_t mmu_strip_region_bits(uint32_t address) {
+	switch (address >> 29) {
+	case 0: case 1: case 2: case 3:
+		return address & 0xFFFFFFFF;
+	case 4:
+		return address & 0x7FFFFFFF;
+	case 5:
+		return address & 0x1FFFFFFF;
+	case 6: case 7:
+		return address & 0xFFFFFFFF;
+	}
+	PANIC("Unreachable path: %08X", address);
+}
+
 uint8_t mmu_read8(uint32_t address) {
+	address = mmu_strip_region_bits(address);
 	switch (address & 0xFFC00000) {
 	case BIOS_START: return bios_read(address - BIOS_START);
 	case RAM_START:  return ram_read(address - RAM_START);
@@ -86,6 +100,7 @@ uint8_t mmu_read8(uint32_t address) {
 }
 
 void mmu_store8(uint32_t address, uint8_t value) {
+	address = mmu_strip_region_bits(address);
 	if (address >= MEM_CONTROL_START && address < MEM_CONTROL_START + MEM_CONTROL_SIZE) {
 		fprintf(stderr, "[WARNING] Write to MEM_CONTROL at %08X\n", address);
 		return;
@@ -331,7 +346,7 @@ static void op_cop0(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 	switch (cop_opcode) {
 	case 0x04: op_mtc0(cpu, instruction); break;
-	default:   PANIC("Unimplemented COP0 instruction: 0x%08X", instruction);
+	default: PANIC("Unimplemented COP0 instruction: 0x%08X", instruction);
 	}
 }
 

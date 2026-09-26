@@ -102,43 +102,8 @@ void cpu_print(struct HakuyaCPU *cpu) {
 	printf("\n");
 }
 
-static inline uint32_t op_get_source(uint32_t instruction) {
-	return (instruction >> 21) & 0x1F;
-}
-
-static inline uint32_t op_get_cop_opcode(uint32_t instruction) {
-	return (instruction >> 21) & 0x1F;
-}
-
-static inline uint32_t op_get_target(uint32_t instruction) {
-	return (instruction >> 16) & 0x1F;
-}
-
-static inline uint32_t op_get_destination(uint32_t instruction) {
-	return (instruction >> 11) & 0x1F;
-}
-
-static inline uint32_t op_get_immediate(uint32_t instruction) {
-	return instruction & 0xFFFF;
-}
-
-static inline int32_t op_get_immediate_signed(uint32_t instruction) {
-	int16_t immediate = instruction & 0xFFFF;
-	return (int32_t)immediate;
-}
-
-static inline int32_t op_get_subfunction(uint32_t instruction) {
-	return instruction & 0x3F;
-}
-
-static inline int32_t op_get_shift_immediate(uint32_t instruction) {
-	return (instruction >> 6) & 0x1F;
-}
-
 static inline void branch(struct HakuyaCPU *cpu, int32_t offset) {
-	offset  *= 4; // use multiplcation to avoid shifting a signed int
-	cpu->pc += offset;
-	cpu->pc -= 4; // to compensate for the +4 in run_next_instruction
+	cpu->pc += offset * 4;
 }
 
 static inline void op_bne(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -208,14 +173,21 @@ static inline void op_j(struct HakuyaCPU *cpu, struct InstructionTypeJ ins) {
 	cpu->pc |= (ins.target << 2);
 }
 
+static inline uint32_t bit_slice(uint32_t num, int hi, int lo) {
+	int width = hi - lo + 1;
+	assert(width < 32);
+	uint32_t mask = (1u << width) - 1;
+	return (num >> lo) & mask;
+}
+
 static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	struct InstructionTypeR ins = {
-		.opcode = instruction >> 26,
-		.rs     = op_get_source(instruction),
-		.rt     = op_get_target(instruction),
-		.rd     = op_get_destination(instruction),
-		.shamt  = op_get_shift_immediate(instruction),
-		.funct  = op_get_subfunction(instruction),
+		.opcode = bit_slice(instruction, 31, 26),
+		.rs     = bit_slice(instruction, 25, 21),
+		.rt     = bit_slice(instruction, 20, 16),
+		.rd     = bit_slice(instruction, 15, 11),
+		.shamt  = bit_slice(instruction, 10,  6),
+		.funct  = bit_slice(instruction,  5,  0),
 	};
 
 	switch (ins.funct) {
@@ -229,10 +201,10 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	struct InstructionTypeI ins = {
-		.opcode = instruction >> 26,
-		.rs     = op_get_source(instruction),
-		.rt     = op_get_target(instruction),
-		.immediate = instruction & 0xFFFF,
+		.opcode    = bit_slice(instruction, 31, 26),
+		.rs        = bit_slice(instruction, 25, 21),
+		.rt        = bit_slice(instruction, 20, 16),
+		.immediate = bit_slice(instruction, 15,  0),
 	};
 
 	switch (ins.opcode) {
@@ -249,8 +221,8 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 static void execute_j_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	struct InstructionTypeJ ins = {
-		.opcode = instruction >> 26,
-		.target = instruction & 0x03FFFFFF,
+		.opcode = bit_slice(instruction, 31, 26),
+		.target = bit_slice(instruction, 25,  0),
 	};
 
 	switch (ins.opcode) {
@@ -260,14 +232,14 @@ static void execute_j_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 }
 
 static void op_mtc0(struct HakuyaCPU *cpu, uint32_t instruction) {
-	uint32_t t = op_get_target(instruction);
-	uint32_t d = op_get_destination(instruction);
-	cpu->cop0_regs[d] = cpu->regs[t];
-	fprintf(stderr, "[INFO] The value %08X was moved to cop0[%d]\n", cpu->regs[t], d);
+	uint32_t rt = bit_slice(instruction, 20, 16);
+	uint32_t rd = bit_slice(instruction, 15, 11);
+	cpu->cop0_regs[rd] = cpu->regs[rt];
+	fprintf(stderr, "[INFO] The value %08X was moved to cop0[%d]\n", cpu->regs[rt], rd);
 }
 
 static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
-	uint32_t cop_opcode = op_get_cop_opcode(instruction);
+	uint32_t cop_opcode = bit_slice(instruction, 25, 21);
 
 	switch (cop_opcode) {
 	case 0x04: op_mtc0(cpu, instruction); break;
@@ -276,7 +248,7 @@ static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction
 }
 
 static void execute_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
-	uint32_t opcode = instruction >> 26; // top 6 bits
+	uint32_t opcode = bit_slice(instruction, 31, 26);
 	switch (opcode) {
 	case 0x00: execute_r_instruction(cpu, instruction);    break;
 	case 0x02:

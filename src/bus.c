@@ -29,6 +29,8 @@ static const MemoryRange RAM        = { 0x00000000, 2 * 1024 * 1024 };
 static const MemoryRange EXPANSION1 = { 0x1F000000, 8 * 1024 * 1024 };
 static const MemoryRange MEM_CTRL   = { 0x1F801000, 36 };
 static const MemoryRange RAM_SIZE   = { 0x1F801060, 4 };
+static const MemoryRange ISTAT      = { 0x1F801070, 4 };
+static const MemoryRange IMASK      = { 0x1F801074, 4 };
 static const MemoryRange SPU        = { 0x1F801C00, 640 };
 static const MemoryRange EXPANSION2 = { 0x1F802000, 8 * 1024 };
 static const MemoryRange BIOS       = { 0x1FC00000, 512 * 1024 };
@@ -82,6 +84,10 @@ static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
 		fprintf(stderr, "[WARNING] Ignored write%d to SPU at %08X = %08X\n", bytes * 8, address, value);
 	else if (range_contains(EXPANSION2, phys_address))
 		fprintf(stderr, "[WARNING] Ignored write%d to EXPANSION2 at %08X = %08X\n", bytes * 8, address, value);
+	else if (range_contains(ISTAT, phys_address))
+		fprintf(stderr, "[WARNING] Ignored write%d to ISTAT at %08X = %08X\n", bytes * 8, address, value);
+	else if (range_contains(IMASK, phys_address))
+		fprintf(stderr, "[WARNING] Ignored write%d to IMASK at %08X = %08X\n", bytes * 8, address, value);
 	else
 		PANIC("Unimplemented write at address %08X\n", address);
 }

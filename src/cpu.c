@@ -234,6 +234,10 @@ static inline uint32_t bit_slice(uint32_t num, int hi, int lo) {
 	return (num >> lo) & mask;
 }
 
+static void unimplemented(uint32_t instruction, const char *name) {
+	PANIC("The instruction 0x%08X (op_%s) is unimplemented", instruction, name);
+}
+
 static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	struct InstructionTypeR ins = {
 		.opcode = bit_slice(instruction, 31, 26),
@@ -246,11 +250,41 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 	switch (ins.funct) {
 	case 0x00: op_sll (cpu, ins); break;
+	// 0x01 is unused
+	case 0x02: unimplemented(instruction, "srl"); break;
+	case 0x03: unimplemented(instruction, "sra"); break;
+	case 0x04: unimplemented(instruction, "sllv"); break;
+	// 0x05 is unused
+	case 0x06: unimplemented(instruction, "srlv"); break;
+	case 0x07: unimplemented(instruction, "srav"); break;
 	case 0x08: op_jr  (cpu, ins); break;
-	/* case 0x09: op_jalr(cpu, ins); break; */
+	case 0x09: op_jalr(cpu, ins); break;
+	// 0x0A and 0x0B are unused
+	case 0x0C: unimplemented(instruction, "syscall"); break;
+	case 0x0D: unimplemented(instruction, "break"); break;
+	// 0x0E and 0x0F are unused
+	case 0x10: unimplemented(instruction, "mfhi"); break;
+	case 0x11: unimplemented(instruction, "mthi"); break;
+	case 0x12: unimplemented(instruction, "mflo"); break;
+	case 0x13: unimplemented(instruction, "mtlo"); break;
+	// 0x14 ~ 0x17 are unused
+	case 0x18: unimplemented(instruction, "mult"); break;
+	case 0x19: unimplemented(instruction, "multu"); break;
+	case 0x1A: unimplemented(instruction, "div"); break;
+	case 0x1B: unimplemented(instruction, "divu"); break;
+	// 0x1C ~ 0x1F are unused
+	case 0x20: unimplemented(instruction, "add"); break;
 	case 0x21: op_addu(cpu, ins); break;
+	case 0x22: unimplemented(instruction, "sub"); break;
+	case 0x23: unimplemented(instruction, "subu"); break;
+	case 0x24: unimplemented(instruction, "and"); break;
 	case 0x25: op_or  (cpu, ins); break;
+	case 0x26: unimplemented(instruction, "xor"); break;
+	case 0x27: unimplemented(instruction, "nor"); break;
+	// 0x28 and 0x29 are unused
+	case 0x2A: unimplemented(instruction, "slt"); break;
 	case 0x2B: op_sltu(cpu, ins); break;
+	// 0x2C ~ 0x3F are unused
 	default: PANIC("Unimplemented R instruction (instruction: 0x%08X, funct: 0x%02X)",
 		       instruction, ins.funct);
 	}
@@ -265,18 +299,47 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	};
 
 	switch (ins.opcode) {
+	case 0x01: unimplemented(instruction, "bcond"); break;
+	// 0x02 and 0x03 are jump codes here
 	case 0x04: op_beq  (cpu, ins); break;
 	case 0x05: op_bne  (cpu, ins); break;
+	case 0x06: unimplemented(instruction, "blez"); break;
+	case 0x07: unimplemented(instruction, "bgtz"); break;
 	case 0x08: op_addi (cpu, ins); break;
 	case 0x09: op_addiu(cpu, ins); break;
+	case 0x0A: unimplemented(instruction, "stli"); break;
+	case 0x0B: unimplemented(instruction, "stliu"); break;
 	case 0x0C: op_andi (cpu, ins); break;
 	case 0x0D: op_ori  (cpu, ins); break;
+	case 0x0E: unimplemented(instruction, "xori"); break;
 	case 0x0F: op_lui  (cpu, ins); break;
+	// 0x10, 0x11, 0x12, and 0x13 are coprocessor codes
+	// 0x14 ~ 0x1F are unused
 	case 0x20: op_lb   (cpu, ins); break;
+	case 0x21: unimplemented(instruction, "lh"); break;
+	case 0x22: unimplemented(instruction, "lwl"); break;
 	case 0x23: op_lw   (cpu, ins); break;
+	case 0x24: unimplemented(instruction, "lbu"); break;
+	case 0x25: unimplemented(instruction, "lhu"); break;
+	case 0x26: unimplemented(instruction, "lwr"); break;
+	// 0x27 is unused
 	case 0x28: op_sb   (cpu, ins); break;
 	case 0x29: op_sh   (cpu, ins); break;
+	case 0x2A: unimplemented(instruction, "swl"); break;
 	case 0x2B: op_sw   (cpu, ins); break;
+	// 0x2C and 0x2D are unused
+	case 0x2E: unimplemented(instruction, "swr"); break;
+	// 0x2F is unused
+	case 0x30: unimplemented(instruction, "lwc0"); break;
+	case 0x31: unimplemented(instruction, "lwc1"); break;
+	case 0x32: unimplemented(instruction, "lwc2"); break;
+	case 0x33: unimplemented(instruction, "lwc3"); break;
+	// 0x34 ~ 0x37 are unused
+	case 0x38: unimplemented(instruction, "swc0"); break;
+	case 0x39: unimplemented(instruction, "swc1"); break;
+	case 0x3A: unimplemented(instruction, "swc2"); break;
+	case 0x3B: unimplemented(instruction, "swc3"); break;
+	// 0x3C ~ 0x3F are unused
 	default: PANIC("Unimplemented I instruction (instruction: 0x%08X, opcode: 0x%02X)",
 		       instruction, ins.opcode);
 	}
@@ -303,11 +366,32 @@ static void op_mtc0(struct HakuyaCPU *cpu, uint32_t instruction) {
 	fprintf(stderr, "[INFO] The value %08X was moved to cop0[%d]\n", cpu->regs[rt], rd);
 }
 
+static void op_mfc0(struct HakuyaCPU *cpu, uint32_t instruction) {
+	uint32_t rt = bit_slice(instruction, 20, 16);
+	uint32_t rd = bit_slice(instruction, 15, 11);
+	cpu_reg_set_pending(cpu, rt, cpu->cop0_regs[rd]);
+	fprintf(stderr, "[INFO] The value %08X was moved from cop0[%d]\n", cpu->cop0_regs[rd], rd);
+}
+
 static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t cop_opcode = bit_slice(instruction, 25, 21);
 
 	switch (cop_opcode) {
+	case 0x00: op_mfc0(cpu, instruction); break;
+	case 0x02: unimplemented(instruction, "cf0"); break;
 	case 0x04: op_mtc0(cpu, instruction); break;
+	case 0x06: unimplemented(instruction, "ct0"); break;
+	case 0x08: unimplemented(instruction, "bc0"); break;
+	case 0x10: // COP0 special instructions
+		switch (bit_slice(instruction, 0, 4)) {
+		case 0x01: unimplemented(instruction, "tlbr"); break;
+		case 0x02: unimplemented(instruction, "tlbwi"); break;
+		case 0x06: unimplemented(instruction, "tlbwr"); break;
+		case 0x08: unimplemented(instruction, "tlbp"); break;
+		case 0x10: unimplemented(instruction, "fre"); break;
+		default: PANIC("Unimplemented COP0 sub instruction: 0x%08X", instruction);
+		}
+		break;
 	default: PANIC("Unimplemented COP0 instruction: 0x%08X", instruction);
 	}
 }

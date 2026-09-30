@@ -109,6 +109,18 @@ static inline void branch(struct HakuyaCPU *cpu, int32_t offset) {
 	cpu->next_next_pc = cpu->pc + 4 + offset * 4;
 }
 
+static inline void op_bltz(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	int32_t imm = (int32_t)(int16_t)ins.immediate;
+	if (cpu->regs[ins.rs] < 0)
+		branch(cpu, imm);
+}
+
+static inline void op_bgez(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	int32_t imm = (int32_t)(int16_t)ins.immediate;
+	if (cpu->regs[ins.rs] >= 0)
+		branch(cpu, imm);
+}
+
 static inline void op_beq(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
 	if (cpu->regs[ins.rs] == cpu->regs[ins.rt])
@@ -325,7 +337,7 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x2A: unimplemented(instruction, "slt"); break;
 	case 0x2B: op_sltu(cpu, ins); break;
 	// 0x2C ~ 0x3F are unused
-	default: PANIC("Unimplemented R instruction (instruction: 0x%08X, funct: 0x%02X)",
+	default: PANIC("Unknown R instruction (instruction: 0x%08X, funct: 0x%02X)",
 		       instruction, ins.funct);
 	}
 }
@@ -339,7 +351,15 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	};
 
 	switch (ins.opcode) {
-	case 0x01: unimplemented(instruction, "bcond"); break;
+	case 0x01: // The bcond opcodes
+		switch (bit_slice(instruction, 20, 16)) {
+		case 0x00: op_bltz(cpu, ins); break;
+		case 0x01: op_bgez(cpu, ins); break;
+		case 0x10: unimplemented(instruction, "bltzal"); break;
+		case 0x11: unimplemented(instruction, "bgezal"); break;
+		default: PANIC("Unknown bcond instruction: 0x%08X", instruction);
+		}
+		break;
 	// 0x02 and 0x03 are jump codes here
 	case 0x04: op_beq  (cpu, ins); break;
 	case 0x05: op_bne  (cpu, ins); break;
@@ -380,7 +400,7 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x3A: unimplemented(instruction, "swc2"); break;
 	case 0x3B: unimplemented(instruction, "swc3"); break;
 	// 0x3C ~ 0x3F are unused
-	default: PANIC("Unimplemented I instruction (instruction: 0x%08X, opcode: 0x%02X)",
+	default: PANIC("Unknown I instruction (instruction: 0x%08X, opcode: 0x%02X)",
 		       instruction, ins.opcode);
 	}
 }
@@ -394,7 +414,7 @@ static void execute_j_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	switch (ins.opcode) {
 	case 0x02: op_j  (cpu, ins); break;
 	case 0x03: op_jal(cpu, ins); break;
-	default: PANIC("Unimplemented J instruction (instruction: 0x%08X, opcode: 0x%02X)",
+	default: PANIC("Unknown J instruction (instruction: 0x%08X, opcode: 0x%02X)",
 		       instruction, ins.opcode);
 	}
 }
@@ -429,10 +449,10 @@ static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction
 		case 0x06: unimplemented(instruction, "tlbwr"); break;
 		case 0x08: unimplemented(instruction, "tlbp"); break;
 		case 0x10: unimplemented(instruction, "fre"); break;
-		default: PANIC("Unimplemented COP0 sub instruction: 0x%08X", instruction);
+		default: PANIC("Unknown COP0 sub instruction: 0x%08X", instruction);
 		}
 		break;
-	default: PANIC("Unimplemented COP0 instruction: 0x%08X", instruction);
+	default: PANIC("Unknown COP0 instruction: 0x%08X", instruction);
 	}
 }
 

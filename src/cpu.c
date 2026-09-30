@@ -23,10 +23,11 @@ enum HakuyaRegisterAlias {
 
 struct HakuyaCPU {
 	uint32_t pc;
+	uint32_t next_pc;
+	uint32_t next_next_pc;
 	uint32_t hi;
 	uint32_t lo;
 	uint32_t regs[32];
-	uint32_t next_instruction;
 	uint32_t cop0_regs[32];
 	struct {
 		uint32_t reg; // if 0, then no pending load
@@ -90,6 +91,8 @@ void cpu_free(struct HakuyaCPU *cpu) {
 void cpu_reset(struct HakuyaCPU *cpu) {
 	memset(cpu, 0, sizeof(struct HakuyaCPU));
 	cpu->pc = BIOS_START;
+	cpu->next_pc = cpu->pc + 4;
+	cpu->next_next_pc = cpu->next_pc + 4;
 }
 
 void cpu_print(struct HakuyaCPU *cpu) {
@@ -103,7 +106,7 @@ void cpu_print(struct HakuyaCPU *cpu) {
 }
 
 static inline void branch(struct HakuyaCPU *cpu, int32_t offset) {
-	cpu->pc += offset * 4;
+	cpu->next_next_pc = cpu->pc + 4 + offset * 4;
 }
 
 static inline void op_beq(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -194,13 +197,13 @@ static inline void op_sll(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	cpu->pc = cpu->regs[REG_RA];
+	cpu->next_next_pc = cpu->regs[REG_RA];
 }
 
 static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	cpu_reg_set(cpu, REG_RA, cpu->pc);
-	cpu_reg_set(cpu, ins.rd, cpu->pc);
-	cpu->pc = cpu->regs[ins.rs];
+	cpu_reg_set(cpu, REG_RA, cpu->next_pc + 4);
+	cpu_reg_set(cpu, ins.rd, cpu->next_pc + 4);
+	cpu->next_next_pc = cpu->regs[ins.rs];
 }
 
 static inline void op_addu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -216,14 +219,12 @@ static inline void op_sltu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_j(struct HakuyaCPU *cpu, struct InstructionTypeJ ins) {
-	cpu->pc &= 0xF0000000;
-	cpu->pc |= (ins.target << 2);
+	cpu->next_next_pc = (cpu->next_pc & 0xF0000000) | (ins.target << 2);
 }
 
 static inline void op_jal(struct HakuyaCPU *cpu, struct InstructionTypeJ ins) {
-	cpu_reg_set(cpu, REG_RA, cpu->pc);
-	cpu->pc &= 0xF0000000;
-	cpu->pc |= (ins.target << 2);
+	cpu_reg_set(cpu, REG_RA, cpu->next_pc + 4);
+	cpu->next_next_pc = (cpu->next_pc & 0xF0000000) | (ins.target << 2);
 }
 
 static inline uint32_t bit_slice(uint32_t num, int hi, int lo) {
@@ -324,9 +325,10 @@ static void execute_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 void run_next_instruction(struct HakuyaCPU *cpu) {
 	advance_pending_loads(cpu);
-	uint32_t instruction = cpu->next_instruction;
-	cpu->next_instruction = bus_read32(cpu->pc);
-	cpu->pc += 4;
-	printf("PC: 0x%08X, Instruction 0x%08X\n", cpu->pc, instruction);
+	uint32_t instruction = bus_read32(cpu->pc);
 	execute_instruction(cpu, instruction);
+
+	cpu->pc = cpu->next_pc;
+	cpu->next_pc = cpu->next_next_pc;
+	cpu->next_next_pc = cpu->next_pc + 4;
 }

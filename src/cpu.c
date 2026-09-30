@@ -121,6 +121,18 @@ static inline void op_bne(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		branch(cpu, imm);
 }
 
+static inline void op_blez(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	int32_t imm = (int32_t)(int16_t)ins.immediate;
+	if (cpu->regs[ins.rs] <= 0)
+		branch(cpu, imm);
+}
+
+static inline void op_bgtz(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	int32_t imm = (int32_t)(int16_t)ins.immediate;
+	if (cpu->regs[ins.rs] > 0)
+		branch(cpu, imm);
+}
+
 static inline void op_addi(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm   = (int32_t)(int16_t)ins.immediate;
 	int32_t value = cpu->regs[ins.rs];
@@ -133,6 +145,11 @@ static inline void op_addi(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_addiu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate);
+}
+
+static inline void op_sltiu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t imm = (uint32_t)(int32_t)(int16_t)ins.immediate;
+	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] < imm);
 }
 
 static inline void op_andi(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -154,6 +171,15 @@ static inline void op_lb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		return;
 	}
 	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int8_t)bus_read8(address));
+}
+
+static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int16_t)ins.immediate;
+	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		return;
+	}
+	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)bus_read8(address));
 }
 
 static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -206,8 +232,22 @@ static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu->next_next_pc = cpu->regs[ins.rs];
 }
 
+static inline void op_add(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	int32_t a = cpu->regs[ins.rs];
+	int32_t b = cpu->regs[ins.rt];
+	if ((a > 0 && a > INT_MAX - b) ||
+	    (a < 0 && a < INT_MIN - b)) {
+		PANIC("Addition between %08X and %08X caused an overflow!", a, b);
+	}
+	cpu_reg_set(cpu, ins.rd, a + b);
+}
+
 static inline void op_addu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] + cpu->regs[ins.rt]);
+}
+
+static inline void op_and(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] & cpu->regs[ins.rt]);
 }
 
 static inline void op_or(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -273,11 +313,11 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x1A: unimplemented(instruction, "div"); break;
 	case 0x1B: unimplemented(instruction, "divu"); break;
 	// 0x1C ~ 0x1F are unused
-	case 0x20: unimplemented(instruction, "add"); break;
+	case 0x20: op_add (cpu, ins); break;
 	case 0x21: op_addu(cpu, ins); break;
 	case 0x22: unimplemented(instruction, "sub"); break;
 	case 0x23: unimplemented(instruction, "subu"); break;
-	case 0x24: unimplemented(instruction, "and"); break;
+	case 0x24: op_and (cpu, ins); break;
 	case 0x25: op_or  (cpu, ins); break;
 	case 0x26: unimplemented(instruction, "xor"); break;
 	case 0x27: unimplemented(instruction, "nor"); break;
@@ -303,12 +343,12 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	// 0x02 and 0x03 are jump codes here
 	case 0x04: op_beq  (cpu, ins); break;
 	case 0x05: op_bne  (cpu, ins); break;
-	case 0x06: unimplemented(instruction, "blez"); break;
-	case 0x07: unimplemented(instruction, "bgtz"); break;
+	case 0x06: op_blez (cpu, ins); break;
+	case 0x07: op_bgtz (cpu, ins); break;
 	case 0x08: op_addi (cpu, ins); break;
 	case 0x09: op_addiu(cpu, ins); break;
-	case 0x0A: unimplemented(instruction, "stli"); break;
-	case 0x0B: unimplemented(instruction, "stliu"); break;
+	case 0x0A: unimplemented(instruction, "slti"); break;
+	case 0x0B: op_sltiu(cpu, ins); break;
 	case 0x0C: op_andi (cpu, ins); break;
 	case 0x0D: op_ori  (cpu, ins); break;
 	case 0x0E: unimplemented(instruction, "xori"); break;
@@ -319,7 +359,7 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x21: unimplemented(instruction, "lh"); break;
 	case 0x22: unimplemented(instruction, "lwl"); break;
 	case 0x23: op_lw   (cpu, ins); break;
-	case 0x24: unimplemented(instruction, "lbu"); break;
+	case 0x24: op_lbu  (cpu, ins); break;
 	case 0x25: unimplemented(instruction, "lhu"); break;
 	case 0x26: unimplemented(instruction, "lwr"); break;
 	// 0x27 is unused

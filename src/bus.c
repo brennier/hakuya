@@ -72,7 +72,7 @@ static inline uint32_t bus_read(uint32_t address, int bytes) {
 			if (region.read_handler) {
 				return region.read_handler(phys_address - region.start, bytes);
 			} else {
-				fprintf(stderr, "[WARNING] read%d from %s at %08X is unimplemented. Returning all 1's.\n",
+				fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning all 1's)\n",
 					bytes * 8, region.name, address);
 				return 0xFFFFFFFF;
 			}
@@ -92,7 +92,7 @@ static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
 				region.write_handler(phys_address - region.start, value, bytes);
 				return;
 			} else {
-				fprintf(stderr, "[WARNING] Ignoring write%d to %s at %08X (= %08X)\n",
+				fprintf(stderr, "[WARNING] Ignoring write%-2d to   %-12s at %08X (= %08X)\n",
 					bytes * 8, region.name, address, value);
 				return;
 			}

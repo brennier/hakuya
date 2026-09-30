@@ -20,24 +20,32 @@ static inline void ram_write(uint32_t address, uint32_t value, int bytes) {
 		ram[address + i] = (uint8_t)(value >> (8 * i));
 }
 
+typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
+typedef uint32_t (*ReadHandler)(uint32_t address, int bytes);
+
 typedef struct {
+	const char *name;
+	WriteHandler write_handler;
+	ReadHandler read_handler;
 	uint32_t start;
 	uint32_t size;
-} MemoryRange;
+} MemoryRegion;
 
-static const MemoryRange RAM        = { 0x00000000, 2 * 1024 * 1024 };
-static const MemoryRange EXPANSION1 = { 0x1F000000, 8 * 1024 * 1024 };
-static const MemoryRange MEM_CTRL   = { 0x1F801000, 36 };
-static const MemoryRange RAM_SIZE   = { 0x1F801060, 4 };
-static const MemoryRange ISTAT      = { 0x1F801070, 4 };
-static const MemoryRange IMASK      = { 0x1F801074, 4 };
-static const MemoryRange SPU        = { 0x1F801C00, 640 };
-static const MemoryRange EXPANSION2 = { 0x1F802000, 8 * 1024 };
-static const MemoryRange BIOS       = { 0x1FC00000, 512 * 1024 };
-static const MemoryRange CACHE_CTRL = { 0xFFFE0130, 4 };
+static const MemoryRegion MEMORY_REGIONS[] = {
+	{ "RAM",        ram_write, ram_read, 0x00000000, 2 * 1024 * 1024 },
+	{ "EXPANSION1", NULL, NULL, 0x1F000000, 8 * 1024 * 1024 },
+	{ "MEM_CTRL",   NULL, NULL, 0x1F801000, 36 },
+	{ "RAM_SIZE",   NULL, NULL, 0x1F801060, 4 },
+	{ "ISTAT",      NULL, NULL, 0x1F801070, 4 },
+	{ "IMASK",      NULL, NULL, 0x1F801074, 4 },
+	{ "SPU",        NULL, NULL, 0x1F801C00, 640 },
+	{ "EXPANSION2", NULL, NULL, 0x1F802000, 8 * 1024 },
+	{ "BIOS",       NULL, bios_read, 0x1FC00000, 512 * 1024 },
+	{ "CACHE_CTRL", NULL, NULL, 0xFFFE0130, 4 },
+};
 
-static inline bool range_contains(MemoryRange range, uint32_t address) {
-	return (address >= range.start && address < range.start + range.size);
+static inline bool region_contains(MemoryRegion region, uint32_t address) {
+	return (address >= region.start && address < region.start + region.size);
 }
 
 static inline uint32_t bus_strip_region_bits(uint32_t address) {
@@ -58,13 +66,18 @@ static inline uint32_t bus_strip_region_bits(uint32_t address) {
 static inline uint32_t bus_read(uint32_t address, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
-	if (range_contains(RAM, phys_address))
-		return ram_read(phys_address - RAM.start, bytes);
-	else if (range_contains(EXPANSION1, phys_address)) {
-		fprintf(stderr, "[WARNING] read%d from EXPANSION1 at %08X. Returning all 1's.\n", bytes * 8, address);
-		return 0xFFFFFFFF;
-	} else if (range_contains(BIOS, phys_address))
-		return bios_read(phys_address - BIOS.start, bytes);
+	for (int i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
+		MemoryRegion region = MEMORY_REGIONS[i];
+		if (region_contains(region, phys_address)) {
+			if (region.read_handler) {
+				return region.read_handler(phys_address - region.start, bytes);
+			} else {
+				fprintf(stderr, "[WARNING] read%d from %s at %08X is unimplemented. Returning all 1's.\n",
+					bytes * 8, region.name, address);
+				return 0xFFFFFFFF;
+			}
+		}
+	}
 
 	PANIC("Unimplemented read at address %08X\n", address);
 }
@@ -72,24 +85,21 @@ static inline uint32_t bus_read(uint32_t address, int bytes) {
 static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
-	if (range_contains(RAM, phys_address))
-		ram_write(phys_address - RAM.start, value, bytes);
-	else if (range_contains(MEM_CTRL, phys_address))
-		fprintf(stderr, "[WARNING] Ignored write%d to MEM_CTRL at %08X = %08X\n", bytes * 8, address, value);
-	else if (range_contains(RAM_SIZE, phys_address))
-		fprintf(stderr, "[WARNING] Ignored write%d to RAM_SIZE at %08X = %08X\n", bytes * 8, address, value);
-	else if (range_contains(CACHE_CTRL, phys_address))
-		fprintf(stderr, "[WARNING] Ignored write%d to CACHE_CTRL at %08X = %08X\n", bytes * 8, address, value);
-	else if (range_contains(SPU, phys_address))
-		fprintf(stderr, "[WARNING] Ignored write%d to SPU at %08X = %08X\n", bytes * 8, address, value);
-	else if (range_contains(EXPANSION2, phys_address))
-		fprintf(stderr, "[WARNING] Ignored write%d to EXPANSION2 at %08X = %08X\n", bytes * 8, address, value);
-	else if (range_contains(ISTAT, phys_address))
-		fprintf(stderr, "[WARNING] Ignored write%d to ISTAT at %08X = %08X\n", bytes * 8, address, value);
-	else if (range_contains(IMASK, phys_address))
-		fprintf(stderr, "[WARNING] Ignored write%d to IMASK at %08X = %08X\n", bytes * 8, address, value);
-	else
-		PANIC("Unimplemented write at address %08X\n", address);
+	for (int i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
+		MemoryRegion region = MEMORY_REGIONS[i];
+		if (region_contains(region, phys_address)) {
+			if (region.write_handler) {
+				region.write_handler(phys_address - region.start, value, bytes);
+				return;
+			} else {
+				fprintf(stderr, "[WARNING] Ignoring write%d to %s at %08X (= %08X)\n",
+					bytes * 8, region.name, address, value);
+				return;
+			}
+		}
+	}
+
+	PANIC("Unimplemented write at address %08X\n", address);
 }
 
 uint8_t  bus_read8 (uint32_t address) { return bus_read(address, 1); }

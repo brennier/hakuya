@@ -121,6 +121,20 @@ static inline void op_bgez(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		branch(cpu, imm);
 }
 
+static inline void op_bltzal(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
+	int32_t imm = (int32_t)(int16_t)ins.immediate;
+	if (cpu->regs[ins.rs] < 0)
+		branch(cpu, imm);
+}
+
+static inline void op_bgezal(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
+	int32_t imm = (int32_t)(int16_t)ins.immediate;
+	if (cpu->regs[ins.rs] >= 0)
+		branch(cpu, imm);
+}
+
 static inline void op_beq(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
 	if (cpu->regs[ins.rs] == cpu->regs[ins.rt])
@@ -170,6 +184,10 @@ static inline void op_andi(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_ori(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] | (uint32_t)ins.immediate);
+}
+
+static inline void op_xori(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] ^ (uint32_t)ins.immediate);
 }
 
 static inline void op_lui(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -239,16 +257,50 @@ static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	cpu_reg_set(cpu, REG_RA, cpu->next_pc + 4);
-	cpu_reg_set(cpu, ins.rd, cpu->next_pc + 4);
+	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
+	cpu_reg_set(cpu, ins.rd, cpu->pc + 8);
 	cpu->next_next_pc = cpu->regs[ins.rs];
+}
+
+static inline void op_mfhi(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, cpu->hi);
+}
+
+static inline void op_mflo(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, cpu->lo);
+}
+
+static inline void op_div(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	int32_t num = (int32_t)cpu->regs[ins.rs];
+	int32_t dem = (int32_t)cpu->regs[ins.rt];
+
+	if (dem == 0) {
+		fprintf(stderr, "[ERROR] Division by unimplemented!");
+		exit(EXIT_FAILURE);
+	}
+
+	cpu->lo = (uint32_t)(num / dem);
+	cpu->hi = (uint32_t)(num % dem);
+}
+
+static inline void op_divu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	uint32_t num = cpu->regs[ins.rs];
+	uint32_t dem = cpu->regs[ins.rt];
+
+	if (dem == 0) {
+		fprintf(stderr, "[ERROR] Division by unimplemented!");
+		exit(EXIT_FAILURE);
+	}
+
+	cpu->lo = (uint32_t)(num / dem);
+	cpu->hi = (uint32_t)(num % dem);
 }
 
 static inline void op_add(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t a = cpu->regs[ins.rs];
 	int32_t b = cpu->regs[ins.rt];
-	if ((a > 0 && a > INT_MAX - b) ||
-	    (a < 0 && a < INT_MIN - b)) {
+	int64_t r = (int64_t)a + (int64_t)b;
+	if (r > INT32_MAX || r < INT32_MIN) {
 		PANIC("Addition between %08X and %08X caused an overflow!", a, b);
 	}
 	cpu_reg_set(cpu, ins.rd, a + b);
@@ -258,12 +310,34 @@ static inline void op_addu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] + cpu->regs[ins.rt]);
 }
 
+static inline void op_sub(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	int32_t a = cpu->regs[ins.rs];
+	int32_t b = cpu->regs[ins.rt];
+	int64_t r = (int64_t)a - (int64_t)b;
+	if (r > INT32_MAX || r < INT32_MIN) {
+		PANIC("Subtraction between %08X and %08X caused an overflow!", a, b);
+	}
+	cpu_reg_set(cpu, ins.rd, a - b);
+}
+
+static inline void op_subu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] - cpu->regs[ins.rt]);
+}
+
 static inline void op_and(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] & cpu->regs[ins.rt]);
 }
 
 static inline void op_or(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] | cpu->regs[ins.rt]);
+}
+
+static inline void op_xor(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] ^ cpu->regs[ins.rt]);
+}
+
+static inline void op_nor(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, ~(cpu->regs[ins.rs] | cpu->regs[ins.rt]));
 }
 
 static inline void op_sltu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -275,7 +349,7 @@ static inline void op_j(struct HakuyaCPU *cpu, struct InstructionTypeJ ins) {
 }
 
 static inline void op_jal(struct HakuyaCPU *cpu, struct InstructionTypeJ ins) {
-	cpu_reg_set(cpu, REG_RA, cpu->next_pc + 4);
+	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
 	cpu->next_next_pc = (cpu->next_pc & 0xF0000000) | (ins.target << 2);
 }
 
@@ -315,24 +389,24 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x0C: unimplemented(instruction, "syscall"); break;
 	case 0x0D: unimplemented(instruction, "break"); break;
 	// 0x0E and 0x0F are unused
-	case 0x10: unimplemented(instruction, "mfhi"); break;
+	case 0x10: op_mfhi(cpu, ins); break;
 	case 0x11: unimplemented(instruction, "mthi"); break;
-	case 0x12: unimplemented(instruction, "mflo"); break;
+	case 0x12: op_mflo(cpu, ins); break;
 	case 0x13: unimplemented(instruction, "mtlo"); break;
 	// 0x14 ~ 0x17 are unused
 	case 0x18: unimplemented(instruction, "mult"); break;
 	case 0x19: unimplemented(instruction, "multu"); break;
-	case 0x1A: unimplemented(instruction, "div"); break;
-	case 0x1B: unimplemented(instruction, "divu"); break;
+	case 0x1A: op_div (cpu, ins); break;
+	case 0x1B: op_divu(cpu, ins); break;
 	// 0x1C ~ 0x1F are unused
 	case 0x20: op_add (cpu, ins); break;
 	case 0x21: op_addu(cpu, ins); break;
-	case 0x22: unimplemented(instruction, "sub"); break;
-	case 0x23: unimplemented(instruction, "subu"); break;
+	case 0x22: op_sub (cpu, ins); break;
+	case 0x23: op_subu(cpu, ins); break;
 	case 0x24: op_and (cpu, ins); break;
 	case 0x25: op_or  (cpu, ins); break;
-	case 0x26: unimplemented(instruction, "xor"); break;
-	case 0x27: unimplemented(instruction, "nor"); break;
+	case 0x26: op_xor (cpu, ins); break;
+	case 0x27: op_nor (cpu, ins); break;
 	// 0x28 and 0x29 are unused
 	case 0x2A: unimplemented(instruction, "slt"); break;
 	case 0x2B: op_sltu(cpu, ins); break;
@@ -353,10 +427,10 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	switch (ins.opcode) {
 	case 0x01: // The bcond opcodes
 		switch (bit_slice(instruction, 20, 16)) {
-		case 0x00: op_bltz(cpu, ins); break;
-		case 0x01: op_bgez(cpu, ins); break;
-		case 0x10: unimplemented(instruction, "bltzal"); break;
-		case 0x11: unimplemented(instruction, "bgezal"); break;
+		case 0x00: op_bltz  (cpu, ins); break;
+		case 0x01: op_bgez  (cpu, ins); break;
+		case 0x10: op_bltzal(cpu, ins); break;
+		case 0x11: op_bgezal(cpu, ins); break;
 		default: PANIC("Unknown bcond instruction: 0x%08X", instruction);
 		}
 		break;
@@ -371,7 +445,7 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x0B: op_sltiu(cpu, ins); break;
 	case 0x0C: op_andi (cpu, ins); break;
 	case 0x0D: op_ori  (cpu, ins); break;
-	case 0x0E: unimplemented(instruction, "xori"); break;
+	case 0x0E: op_xori (cpu, ins); break;
 	case 0x0F: op_lui  (cpu, ins); break;
 	// 0x10, 0x11, 0x12, and 0x13 are coprocessor codes
 	// 0x14 ~ 0x1F are unused

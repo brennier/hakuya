@@ -316,8 +316,8 @@ static inline void op_div(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t num = (int32_t)cpu->regs[ins.rs];
 	int32_t dem = (int32_t)cpu->regs[ins.rt];
 
-	if (dem == 0) {
-		fprintf(stderr, "[ERROR] Division by unimplemented!");
+	if (dem == 0 || (num == INT32_MIN && dem == -1)) {
+		fprintf(stderr, "[ERROR] Unimplemented division of %d and %d!\n", num, dem);
 		exit(EXIT_FAILURE);
 	}
 
@@ -401,7 +401,7 @@ static inline void op_jal(struct HakuyaCPU *cpu, struct InstructionTypeJ ins) {
 
 static inline uint32_t bit_slice(uint32_t num, int hi, int lo) {
 	int width = hi - lo + 1;
-	assert(width < 32);
+	assert(width < 32 && width > 0);
 	uint32_t mask = (1u << width) - 1;
 	return (num >> lo) & mask;
 }
@@ -563,12 +563,12 @@ static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction
 	case 0x06: unimplemented(instruction, "ct0"); break;
 	case 0x08: unimplemented(instruction, "bc0"); break;
 	case 0x10: // COP0 special instructions
-		switch (bit_slice(instruction, 0, 4)) {
+		switch (bit_slice(instruction, 5, 0)) {
 		case 0x01: unimplemented(instruction, "tlbr"); break;
 		case 0x02: unimplemented(instruction, "tlbwi"); break;
 		case 0x06: unimplemented(instruction, "tlbwr"); break;
 		case 0x08: unimplemented(instruction, "tlbp"); break;
-		case 0x10: unimplemented(instruction, "fre"); break;
+		case 0x10: unimplemented(instruction, "rfe"); break;
 		default: PANIC("Unknown COP0 sub instruction: 0x%08X", instruction);
 		}
 		break;

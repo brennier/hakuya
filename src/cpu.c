@@ -122,17 +122,17 @@ static inline void op_bgez(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 }
 
 static inline void op_bltzal(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
 	if ((int32_t)cpu->regs[ins.rs] < 0)
 		branch(cpu, imm);
+	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
 }
 
 static inline void op_bgezal(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
 	if ((int32_t)cpu->regs[ins.rs] >= 0)
 		branch(cpu, imm);
+	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
 }
 
 static inline void op_beq(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -293,13 +293,15 @@ static inline void op_srav(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	cpu->next_next_pc = cpu->regs[REG_RA];
+	cpu->next_next_pc = cpu->regs[ins.rs];
+	if (cpu->next_next_pc & 0x03 != 0) {
+		PANIC("Unaligned jump instruction to 0x08X!", cpu->next_next_pc);
+	}
 }
 
 static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
-	cpu_reg_set(cpu, ins.rd, cpu->pc + 8);
 	cpu->next_next_pc = cpu->regs[ins.rs];
+	cpu_reg_set(cpu, ins.rd, cpu->pc + 8);
 }
 
 static inline void op_mfhi(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {

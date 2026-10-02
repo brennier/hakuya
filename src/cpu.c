@@ -308,8 +308,32 @@ static inline void op_mfhi(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->hi);
 }
 
+static inline void op_mthi(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu->hi = cpu->regs[ins.rs];
+}
+
 static inline void op_mflo(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->lo);
+}
+
+static inline void op_mtlo(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu->lo = cpu->regs[ins.rs];
+}
+
+static inline void op_mult(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	int64_t a = (int64_t)(int32_t)cpu->regs[ins.rs];
+	int64_t b = (int64_t)(int32_t)cpu->regs[ins.rt];
+	uint64_t result = (uint64_t)(a * b);
+	cpu->lo = (result & 0xFFFF);
+	cpu->hi = (result >> 32);
+}
+
+static inline void op_multu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	uint64_t a = (uint64_t)cpu->regs[ins.rs];
+	uint64_t b = (uint64_t)cpu->regs[ins.rt];
+	uint64_t result = a * b;
+	cpu->lo = (result & 0xFFFF);
+	cpu->hi = (result >> 32);
 }
 
 static inline void op_div(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -436,12 +460,12 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x0D: unimplemented(instruction, "break"); break;
 	// 0x0E and 0x0F are unused
 	case 0x10: op_mfhi(cpu, ins); break;
-	case 0x11: unimplemented(instruction, "mthi"); break;
+	case 0x11: op_mthi(cpu, ins); break;
 	case 0x12: op_mflo(cpu, ins); break;
-	case 0x13: unimplemented(instruction, "mtlo"); break;
+	case 0x13: op_mtlo(cpu, ins); break;
 	// 0x14 ~ 0x17 are unused
-	case 0x18: unimplemented(instruction, "mult"); break;
-	case 0x19: unimplemented(instruction, "multu"); break;
+	case 0x18: op_mult (cpu, ins); break;
+	case 0x19: op_multu(cpu, ins); break;
 	case 0x1A: op_div (cpu, ins); break;
 	case 0x1B: op_divu(cpu, ins); break;
 	// 0x1C ~ 0x1F are unused

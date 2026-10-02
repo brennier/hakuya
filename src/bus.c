@@ -23,33 +23,32 @@ static inline void ram_write(uint32_t address, uint32_t value, int bytes) {
 typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
 typedef uint32_t (*ReadHandler)(uint32_t address, int bytes);
 
-static inline uint32_t zero_read(uint32_t address, int bytes) {
-	return 0x00000000;
-}
-
-static inline uint32_t one_read(uint32_t address, int bytes) {
+static inline uint32_t expansion1_read(uint32_t address, int bytes) {
+	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning all 1's)\n",
+		bytes * 8, "EXPANSION1", address);
 	return 0xFFFFFFFF;
 }
 
 typedef struct {
 	const char *name;
-	WriteHandler write_handler;
-	ReadHandler read_handler;
 	uint32_t start;
 	uint32_t size;
+	WriteHandler write_handler;
+	ReadHandler read_handler;
 } MemoryRegion;
 
 static const MemoryRegion MEMORY_REGIONS[] = {
-	{ "RAM",        ram_write, ram_read, 0x00000000, 2 * 1024 * 1024 },
-	{ "EXPANSION1", NULL, NULL, 0x1F000000, 8 * 1024 * 1024 },
-	{ "MEM_CTRL",   NULL, NULL, 0x1F801000, 36 },
-	{ "RAM_SIZE",   NULL, NULL, 0x1F801060, 4 },
-	{ "ISTAT",      NULL, zero_read, 0x1F801070, 4 },
-	{ "IMASK",      NULL, zero_read, 0x1F801074, 4 },
-	{ "SPU",        NULL, NULL, 0x1F801C00, 640 },
-	{ "EXPANSION2", NULL, NULL, 0x1F802000, 8 * 1024 },
-	{ "BIOS",       NULL, bios_read, 0x1FC00000, 512 * 1024 },
-	{ "CACHE_CTRL", NULL, NULL, 0xFFFE0130, 4 },
+	{ "RAM",        0x00000000, 2 * 1024 * 1024, ram_write, ram_read },
+	{ "EXPANSION1", 0x1F000000, 8 * 1024 * 1024, NULL, expansion1_read },
+	{ "MEM_CTRL",   0x1F801000, 36,  NULL, NULL },
+	{ "RAM_SIZE",   0x1F801060, 4,   NULL, NULL },
+	{ "ISTAT",      0x1F801070, 4,   NULL, NULL },
+	{ "IMASK",      0x1F801074, 4,   NULL, NULL },
+	{ "TIMERS",     0x1F801100, 48,  NULL, NULL },
+	{ "SPU",        0x1F801C00, 640, NULL, NULL },
+	{ "EXPANSION2", 0x1F802000, 8 * 1024,   NULL, NULL },
+	{ "BIOS",       0x1FC00000, 512 * 1024, NULL, bios_read },
+	{ "CACHE_CTRL", 0xFFFE0130, 4, NULL, NULL },
 };
 
 static inline bool region_contains(MemoryRegion region, uint32_t address) {
@@ -80,9 +79,9 @@ static inline uint32_t bus_read(uint32_t address, int bytes) {
 			if (region.read_handler) {
 				return region.read_handler(phys_address - region.start, bytes);
 			} else {
-				fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning all 1's)\n",
+				fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0)\n",
 					bytes * 8, region.name, address);
-				return 0xFFFFFFFF;
+				return 0;
 			}
 		}
 	}

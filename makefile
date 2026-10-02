@@ -1,5 +1,5 @@
 TARGET = hakuya
-CFLAGS = -std=c99 -pedantic-errors -Wall
+CFLAGS = -O2 -std=c99 -pedantic-errors -Wall
 LFLAGS = $(shell pkg-config --libs sdl3)
 INCLUDES = -I src $(shell pkg-config --cflags sdl3)
 

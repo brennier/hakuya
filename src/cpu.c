@@ -173,6 +173,11 @@ static inline void op_addiu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) 
 	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate);
 }
 
+static inline void op_slti(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	int32_t imm = (int32_t)(int16_t)ins.immediate;
+	cpu_reg_set(cpu, ins.rt, (int32_t)cpu->regs[ins.rs] < imm);
+}
+
 static inline void op_sltiu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t imm = (uint32_t)(int32_t)(int16_t)ins.immediate;
 	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] < imm);
@@ -250,6 +255,41 @@ static inline void op_sw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_sll(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rt] << ins.shamt);
+}
+
+static inline void op_srl(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rt] >> ins.shamt);
+}
+
+static inline void op_sra(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	// Get guaranteed arithmetic right shift behavior. On gcc -O2, this
+	// converts into a single sra instruction as desired.
+	int32_t signed_num = (int32_t)cpu->regs[ins.rt];
+	if (signed_num < 0)
+		cpu_reg_set(cpu, ins.rd, ~(~signed_num >> ins.shamt));
+	else
+		cpu_reg_set(cpu, ins.rd, signed_num >> ins.shamt);
+}
+
+static inline void op_sllv(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	uint32_t shift_amount = cpu->regs[ins.rs] & 0x1F;
+	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rt] << shift_amount);
+}
+
+static inline void op_srlv(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	uint32_t shift_amount = cpu->regs[ins.rs] & 0x1F;
+	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rt] >> shift_amount);
+}
+
+static inline void op_srav(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	uint32_t shift_amount = cpu->regs[ins.rs] & 0x1F;
+	// Get guaranteed arithmetic right shift behavior. On gcc -O2, this
+	// converts into a single sra instruction as desired.
+	int32_t  signed_num = (int32_t)cpu->regs[ins.rt];
+	if (signed_num < 0)
+		cpu_reg_set(cpu, ins.rd, ~(~signed_num >> shift_amount));
+	else
+		cpu_reg_set(cpu, ins.rd, signed_num >> shift_amount);
 }
 
 static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -340,6 +380,10 @@ static inline void op_nor(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, ~(cpu->regs[ins.rs] | cpu->regs[ins.rt]));
 }
 
+static inline void op_slt(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	cpu_reg_set(cpu, ins.rd, (int32_t)cpu->regs[ins.rs] < (int32_t)cpu->regs[ins.rt]);
+}
+
 static inline void op_sltu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rs] < cpu->regs[ins.rt]);
 }
@@ -377,12 +421,12 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	switch (ins.funct) {
 	case 0x00: op_sll (cpu, ins); break;
 	// 0x01 is unused
-	case 0x02: unimplemented(instruction, "srl"); break;
-	case 0x03: unimplemented(instruction, "sra"); break;
-	case 0x04: unimplemented(instruction, "sllv"); break;
+	case 0x02: op_srl (cpu, ins); break;
+	case 0x03: op_sra (cpu, ins); break;
+	case 0x04: op_sllv(cpu, ins); break;
 	// 0x05 is unused
-	case 0x06: unimplemented(instruction, "srlv"); break;
-	case 0x07: unimplemented(instruction, "srav"); break;
+	case 0x06: op_srlv(cpu, ins); break;
+	case 0x07: op_srav(cpu, ins); break;
 	case 0x08: op_jr  (cpu, ins); break;
 	case 0x09: op_jalr(cpu, ins); break;
 	// 0x0A and 0x0B are unused
@@ -408,7 +452,7 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x26: op_xor (cpu, ins); break;
 	case 0x27: op_nor (cpu, ins); break;
 	// 0x28 and 0x29 are unused
-	case 0x2A: unimplemented(instruction, "slt"); break;
+	case 0x2A: op_slt (cpu, ins); break;
 	case 0x2B: op_sltu(cpu, ins); break;
 	// 0x2C ~ 0x3F are unused
 	default: PANIC("Unknown R instruction (instruction: 0x%08X, funct: 0x%02X)",
@@ -441,7 +485,7 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x07: op_bgtz (cpu, ins); break;
 	case 0x08: op_addi (cpu, ins); break;
 	case 0x09: op_addiu(cpu, ins); break;
-	case 0x0A: unimplemented(instruction, "slti"); break;
+	case 0x0A: op_slti (cpu, ins); break;
 	case 0x0B: op_sltiu(cpu, ins); break;
 	case 0x0C: op_andi (cpu, ins); break;
 	case 0x0D: op_ori  (cpu, ins); break;

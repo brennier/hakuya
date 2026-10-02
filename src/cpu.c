@@ -111,27 +111,27 @@ static inline void branch(struct HakuyaCPU *cpu, int32_t offset) {
 
 static inline void op_bltz(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
-	if (cpu->regs[ins.rs] < 0)
+	if ((int32_t)cpu->regs[ins.rs] < 0)
 		branch(cpu, imm);
 }
 
 static inline void op_bgez(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
-	if (cpu->regs[ins.rs] >= 0)
+	if ((int32_t)cpu->regs[ins.rs] >= 0)
 		branch(cpu, imm);
 }
 
 static inline void op_bltzal(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
-	if (cpu->regs[ins.rs] < 0)
+	if ((int32_t)cpu->regs[ins.rs] < 0)
 		branch(cpu, imm);
 }
 
 static inline void op_bgezal(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	cpu_reg_set(cpu, REG_RA, cpu->pc + 8);
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
-	if (cpu->regs[ins.rs] >= 0)
+	if ((int32_t)cpu->regs[ins.rs] >= 0)
 		branch(cpu, imm);
 }
 
@@ -149,13 +149,13 @@ static inline void op_bne(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_blez(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
-	if (cpu->regs[ins.rs] <= 0)
+	if ((int32_t)cpu->regs[ins.rs] <= 0)
 		branch(cpu, imm);
 }
 
 static inline void op_bgtz(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm = (int32_t)(int16_t)ins.immediate;
-	if (cpu->regs[ins.rs] > 0)
+	if ((int32_t)cpu->regs[ins.rs] > 0)
 		branch(cpu, imm);
 }
 
@@ -205,16 +205,16 @@ static inline void op_lb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
 		return;
 	}
-	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int8_t)bus_read8(address));
+	cpu_reg_set_pending(cpu, ins.rt, (int32_t)(int8_t)bus_read8(address));
 }
 
 static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int16_t)ins.immediate;
+	uint32_t address = cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
 		return;
 	}
-	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)bus_read8(address));
+	cpu_reg_set_pending(cpu, ins.rt, bus_read8(address));
 }
 
 static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {

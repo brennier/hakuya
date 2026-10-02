@@ -56,7 +56,7 @@ struct InstructionTypeJ {
 	uint32_t target;
 };
 
-void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
+static inline void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
 	if (reg == 0) return;
 	cpu->regs[reg] = value;
 
@@ -65,12 +65,12 @@ void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
 	}
 }
 
-void cpu_reg_set_pending(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
+static inline void cpu_reg_set_pending(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
 	cpu->pending_load[1].reg = reg;
 	cpu->pending_load[1].value = value;
 }
 
-void advance_pending_loads(struct HakuyaCPU *cpu) {
+static inline void advance_pending_loads(struct HakuyaCPU *cpu) {
 	if (cpu->pending_load[0].reg > 0) {
 		cpu->regs[cpu->pending_load[0].reg] = cpu->pending_load[0].value;
 	}
@@ -106,7 +106,8 @@ void cpu_print(struct HakuyaCPU *cpu) {
 }
 
 static inline void branch(struct HakuyaCPU *cpu, int32_t offset) {
-	cpu->next_next_pc = cpu->pc + 4 + offset * 4;
+	int32_t target = (int32_t)cpu->pc + 4 + offset * 4;
+	cpu->next_next_pc = (uint32_t)target;
 }
 
 static inline void op_bltz(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -161,16 +162,16 @@ static inline void op_bgtz(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_addi(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t imm   = (int32_t)(int16_t)ins.immediate;
-	int32_t value = cpu->regs[ins.rs];
+	int32_t value = (int32_t)cpu->regs[ins.rs];
 	if ((value > 0 && imm > INT_MAX - value) ||
 	    (value < 0 && imm < INT_MIN - value)) {
 		PANIC("Addition between %08X and %08X caused an overflow!", value, imm);
 	}
-	cpu_reg_set(cpu, ins.rt, value + imm);
+	cpu_reg_set(cpu, ins.rt, (uint32_t)(value + imm));
 }
 
 static inline void op_addiu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate);
+	cpu_reg_set(cpu, ins.rt, cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate);
 }
 
 static inline void op_slti(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -200,16 +201,16 @@ static inline void op_lui(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 }
 
 static inline void op_lb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	uint32_t address = cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate;
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
 		return;
 	}
-	cpu_reg_set_pending(cpu, ins.rt, (int32_t)(int8_t)bus_read8(address));
+	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int32_t)(int8_t)bus_read8(address));
 }
 
 static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	uint32_t address = cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate;
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -218,7 +219,7 @@ static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 }
 
 static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	uint32_t address = cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate;
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -227,7 +228,7 @@ static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 }
 
 static inline void op_sb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	uint32_t address = cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate;
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -236,7 +237,7 @@ static inline void op_sb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 }
 
 static inline void op_sh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	uint32_t address = cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate;
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -245,7 +246,7 @@ static inline void op_sh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 }
 
 static inline void op_sw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	uint32_t address = cpu->regs[ins.rs] + (int32_t)(int16_t)ins.immediate;
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -266,9 +267,10 @@ static inline void op_sra(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	// converts into a single sra instruction as desired.
 	int32_t signed_num = (int32_t)cpu->regs[ins.rt];
 	if (signed_num < 0)
-		cpu_reg_set(cpu, ins.rd, ~(~signed_num >> ins.shamt));
+		signed_num = ~(~signed_num >> ins.shamt);
 	else
-		cpu_reg_set(cpu, ins.rd, signed_num >> ins.shamt);
+		signed_num = signed_num >> ins.shamt;
+	cpu_reg_set(cpu, ins.rd, (uint32_t)signed_num);
 }
 
 static inline void op_sllv(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -285,17 +287,18 @@ static inline void op_srav(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	uint32_t shift_amount = cpu->regs[ins.rs] & 0x1F;
 	// Get guaranteed arithmetic right shift behavior. On gcc -O2, this
 	// converts into a single sra instruction as desired.
-	int32_t  signed_num = (int32_t)cpu->regs[ins.rt];
+	int32_t signed_num = (int32_t)cpu->regs[ins.rt];
 	if (signed_num < 0)
-		cpu_reg_set(cpu, ins.rd, ~(~signed_num >> shift_amount));
+		signed_num = ~(~signed_num >> shift_amount);
 	else
-		cpu_reg_set(cpu, ins.rd, signed_num >> shift_amount);
+		signed_num = signed_num >> shift_amount;
+	cpu_reg_set(cpu, ins.rd, (uint32_t)signed_num);
 }
 
 static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu->next_next_pc = cpu->regs[ins.rs];
-	if (cpu->next_next_pc & 0x03 != 0) {
-		PANIC("Unaligned jump instruction to 0x08X!", cpu->next_next_pc);
+	if ((cpu->next_next_pc & 0x03) != 0) {
+		PANIC("Unaligned jump instruction to 0x%08X!", cpu->next_next_pc);
 	}
 }
 
@@ -363,13 +366,13 @@ static inline void op_divu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_add(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	int32_t a = cpu->regs[ins.rs];
-	int32_t b = cpu->regs[ins.rt];
+	int32_t a = (int32_t)cpu->regs[ins.rs];
+	int32_t b = (int32_t)cpu->regs[ins.rt];
 	int64_t r = (int64_t)a + (int64_t)b;
 	if (r > INT32_MAX || r < INT32_MIN) {
 		PANIC("Addition between %08X and %08X caused an overflow!", a, b);
 	}
-	cpu_reg_set(cpu, ins.rd, a + b);
+	cpu_reg_set(cpu, ins.rd, (uint32_t)(a + b));
 }
 
 static inline void op_addu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -377,13 +380,13 @@ static inline void op_addu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_sub(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	int32_t a = cpu->regs[ins.rs];
-	int32_t b = cpu->regs[ins.rt];
+	int32_t a = (int32_t)cpu->regs[ins.rs];
+	int32_t b = (int32_t)cpu->regs[ins.rt];
 	int64_t r = (int64_t)a - (int64_t)b;
 	if (r > INT32_MAX || r < INT32_MIN) {
 		PANIC("Subtraction between %08X and %08X caused an overflow!", a, b);
 	}
-	cpu_reg_set(cpu, ins.rd, a - b);
+	cpu_reg_set(cpu, ins.rd, (uint32_t)(a - b));
 }
 
 static inline void op_subu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -436,12 +439,12 @@ static void unimplemented(uint32_t instruction, const char *name) {
 
 static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	struct InstructionTypeR ins = {
-		.opcode = bit_slice(instruction, 31, 26),
-		.rs     = bit_slice(instruction, 25, 21),
-		.rt     = bit_slice(instruction, 20, 16),
-		.rd     = bit_slice(instruction, 15, 11),
-		.shamt  = bit_slice(instruction, 10,  6),
-		.funct  = bit_slice(instruction,  5,  0),
+		.opcode = (uint8_t)bit_slice(instruction, 31, 26),
+		.rs     = (uint8_t)bit_slice(instruction, 25, 21),
+		.rt     = (uint8_t)bit_slice(instruction, 20, 16),
+		.rd     = (uint8_t)bit_slice(instruction, 15, 11),
+		.shamt  = (uint8_t)bit_slice(instruction, 10,  6),
+		.funct  = (uint8_t)bit_slice(instruction,  5,  0),
 	};
 
 	switch (ins.funct) {
@@ -488,10 +491,10 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	struct InstructionTypeI ins = {
-		.opcode    = bit_slice(instruction, 31, 26),
-		.rs        = bit_slice(instruction, 25, 21),
-		.rt        = bit_slice(instruction, 20, 16),
-		.immediate = bit_slice(instruction, 15,  0),
+		.opcode    = (uint8_t)bit_slice(instruction, 31, 26),
+		.rs        = (uint8_t)bit_slice(instruction, 25, 21),
+		.rt        = (uint8_t)bit_slice(instruction, 20, 16),
+		.immediate = (uint16_t)bit_slice(instruction, 15,  0),
 	};
 
 	switch (ins.opcode) {
@@ -551,8 +554,8 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 static void execute_j_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	struct InstructionTypeJ ins = {
-		.opcode = bit_slice(instruction, 31, 26),
-		.target = bit_slice(instruction, 25,  0),
+		.opcode = (uint8_t)bit_slice(instruction, 31, 26),
+		.target = (uint32_t)bit_slice(instruction, 25,  0),
 	};
 
 	switch (ins.opcode) {

@@ -37,7 +37,7 @@ void bios_load(const char *filepath) {
 uint32_t bios_read(uint32_t offset, int bytes) {
 	assert(bios_is_loaded);
 	uint32_t value = 0;
-	for (int i = 0; i < bytes; i++)
+	for (size_t i = 0; i < (size_t)bytes; i++)
 		value |= (uint32_t)(bios[offset + i]) << (8 * i);
 	return value;
 }

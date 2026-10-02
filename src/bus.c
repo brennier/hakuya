@@ -10,13 +10,13 @@ static uint8_t ram[2 * 1024 * 1024] = { 0 };
 
 static inline uint32_t ram_read(uint32_t address, int bytes) {
 	uint32_t value = 0;
-	for (int i = 0; i < bytes; i++)
+	for (size_t i = 0; i < (size_t)bytes; i++)
 		value |= (uint32_t)(ram[address + i]) << (8 * i);
 	return value;
 }
 
 static inline void ram_write(uint32_t address, uint32_t value, int bytes) {
-	for (int i = 0; i < bytes; i++)
+	for (size_t i = 0; i < (size_t)bytes; i++)
 		ram[address + i] = (uint8_t)(value >> (8 * i));
 }
 
@@ -73,7 +73,7 @@ static inline uint32_t bus_strip_region_bits(uint32_t address) {
 static inline uint32_t bus_read(uint32_t address, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
-	for (int i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
+	for (size_t i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
 		MemoryRegion region = MEMORY_REGIONS[i];
 		if (region_contains(region, phys_address)) {
 			if (region.read_handler) {
@@ -92,7 +92,7 @@ static inline uint32_t bus_read(uint32_t address, int bytes) {
 static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
-	for (int i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
+	for (size_t i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
 		MemoryRegion region = MEMORY_REGIONS[i];
 		if (region_contains(region, phys_address)) {
 			if (region.write_handler) {
@@ -109,9 +109,9 @@ static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
 	PANIC("Unimplemented write at address %08X\n", address);
 }
 
-uint8_t  bus_read8 (uint32_t address) { return bus_read(address, 1); }
-uint16_t bus_read16(uint32_t address) { return bus_read(address, 2); }
-uint32_t bus_read32(uint32_t address) { return bus_read(address, 4); }
+uint8_t  bus_read8 (uint32_t address) { return (uint8_t)bus_read(address, 1); }
+uint16_t bus_read16(uint32_t address) { return (uint16_t)bus_read(address, 2); }
+uint32_t bus_read32(uint32_t address) { return (uint32_t)bus_read(address, 4); }
 
 void bus_write8 (uint32_t address, uint8_t  value) { bus_write(address, value, 1); }
 void bus_write16(uint32_t address, uint16_t value) { bus_write(address, value, 2); }

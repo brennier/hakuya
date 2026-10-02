@@ -1,5 +1,9 @@
 TARGET = hakuya
-CFLAGS = -O2 -std=c99 -pedantic-errors -Wall
+CFLAGS = -O2 -std=c99 -pedantic-errors -Wall -Wextra -Wconversion \
+         -Wsign-conversion -Wtype-limits -Wimplicit-fallthrough \
+         -Wshadow -Wstrict-prototypes -Wmissing-prototypes
+DEBUG_CFLAGS = $(CFLAGS) -O1 -g -fsanitize=address,undefined \
+               -fno-sanitize-recover=undefined
 LFLAGS = $(shell pkg-config --libs sdl3)
 INCLUDES = -I src $(shell pkg-config --cflags sdl3)
 

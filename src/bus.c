@@ -23,6 +23,14 @@ static inline void ram_write(uint32_t address, uint32_t value, int bytes) {
 typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
 typedef uint32_t (*ReadHandler)(uint32_t address, int bytes);
 
+static inline uint32_t zero_read(uint32_t address, int bytes) {
+	return 0x00000000;
+}
+
+static inline uint32_t one_read(uint32_t address, int bytes) {
+	return 0xFFFFFFFF;
+}
+
 typedef struct {
 	const char *name;
 	WriteHandler write_handler;
@@ -36,8 +44,8 @@ static const MemoryRegion MEMORY_REGIONS[] = {
 	{ "EXPANSION1", NULL, NULL, 0x1F000000, 8 * 1024 * 1024 },
 	{ "MEM_CTRL",   NULL, NULL, 0x1F801000, 36 },
 	{ "RAM_SIZE",   NULL, NULL, 0x1F801060, 4 },
-	{ "ISTAT",      NULL, NULL, 0x1F801070, 4 },
-	{ "IMASK",      NULL, NULL, 0x1F801074, 4 },
+	{ "ISTAT",      NULL, zero_read, 0x1F801070, 4 },
+	{ "IMASK",      NULL, zero_read, 0x1F801074, 4 },
 	{ "SPU",        NULL, NULL, 0x1F801C00, 640 },
 	{ "EXPANSION2", NULL, NULL, 0x1F802000, 8 * 1024 },
 	{ "BIOS",       NULL, bios_read, 0x1FC00000, 512 * 1024 },

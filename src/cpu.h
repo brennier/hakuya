@@ -10,4 +10,4 @@ void cpu_print(struct HakuyaCPU *cpu);
 void cpu_reset(struct HakuyaCPU *cpu);
 void run_next_instruction(struct HakuyaCPU *cpu);
 
-#endif // HAGKUYA_BIOS_H
+#endif // HAGKUYA_CPU_H

@@ -12,22 +12,6 @@
 
 #define BIOS_START 0x1FC00000
 
-enum HakuyaRegisterAlias {
-	REG_ZERO = 0,  // Always zero
-	REG_AT   = 1,  // Reserved
-	REG_GP   = 28, // Global pointer
-	REG_SP   = 29, // Stack pointer
-	REG_FP   = 30, // Frame pointer
-	REG_RA   = 31, // Return Address
-};
-
-enum COP0Register {
-	REG_BADADDR = 8,
-	REG_SR      = 12,
-	REG_CAUSE   = 13,
-	REG_EPC     = 14,
-};
-
 struct HakuyaCPU {
 	uint32_t pc;
 	uint32_t next_pc;
@@ -40,6 +24,37 @@ struct HakuyaCPU {
 		uint32_t reg; // if 0, then no pending load
 		uint32_t value;
 	} pending_load[2];
+};
+
+enum HakuyaRegisterAlias {
+	REG_ZERO = 0,  // Always zero
+	REG_AT   = 1,  // Reserved
+	REG_GP   = 28, // Global pointer
+	REG_SP   = 29, // Stack pointer
+	REG_FP   = 30, // Frame pointer
+	REG_RA   = 31, // Return Address
+};
+
+enum COP0Register {
+	REG_CONFIG  = 3,
+	REG_BADADDR = 8,
+	REG_SR      = 12,
+	REG_CAUSE   = 13,
+	REG_EPC     = 14,
+	REG_ID      = 15,
+};
+
+enum ExceptionCode {
+	EXCEPTION_INTERRUPT = 0,
+	EXCEPTION_ADDRESS_LOAD_ERROR = 4,
+	EXCEPTION_ADDRESS_STORE_ERROR = 5,
+	EXCEPTION_BUS_FETCH_ERROR = 6,
+	EXCEPTION_BUS_LOAD_ERROR = 7,
+	EXCEPTION_SYSCALL = 8,
+	EXCEPTION_BREAK = 9,
+	EXCEPTION_RESERVED_INSTRUCTION = 10,
+	EXCEPTION_COPROCESSOR_UNUSABLE = 11,
+	EXCEPTION_OVERFLOW = 12,
 };
 
 struct InstructionTypeR {
@@ -63,25 +78,24 @@ struct InstructionTypeJ {
 	uint32_t target;
 };
 
-enum ExceptionCode {
-	EXCEPTION_SYSCALL = 0x08,
-};
-
 static inline void raise_exception(struct HakuyaCPU *cpu, enum ExceptionCode code) {
-        // The first 5 bits of the SR register are left shifted by 2
-	// This disable interrupts and activates kernel mode.
+        // The first 6 bits of the SR register represent a 3-deep and 2-bit wide stack.
+	// The 2 bits represent "Kernel mode" and "Allow interrupts".
 	uint32_t mode = (cpu->cop0_regs[12] << 2) & 0x3F;
+	mode |= 0x02; // Turn on kernel mode and ignore interrupts
 	cpu->cop0_regs[REG_SR] &= ~(uint32_t)0x3F;
 	cpu->cop0_regs[REG_SR] |= mode;
 
 	// Record the cause and the current PC
 	cpu->cop0_regs[REG_CAUSE] = (uint32_t)code << 2;
-	cpu->cop0_regs[REG_EPC] = cpu->pc;
+	cpu->cop0_regs[REG_EPC]   = cpu->pc;
 
 	// If we're in a branch delay slot
 	if (cpu->next_pc - cpu->pc != 4) {
-		cpu->cop0_regs[REG_EPC] -= 4;
+		cpu->cop0_regs[REG_EPC]   -= 4;
 		cpu->cop0_regs[REG_CAUSE] |= (1u << 31);
+	} else {
+		cpu->cop0_regs[REG_CAUSE] &= ~(1u << 31);
 	}
 
 	// Jump with no delay slot depending on the bev bit
@@ -198,7 +212,8 @@ static inline void op_addi(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	int32_t value = (int32_t)cpu->regs[ins.rs];
 	if ((value > 0 && imm > INT_MAX - value) ||
 	    (value < 0 && imm < INT_MIN - value)) {
-		PANIC("Addition between %08X and %08X caused an overflow!", value, imm);
+		raise_exception(cpu, EXCEPTION_OVERFLOW);
+		return;
 	}
 	cpu_reg_set(cpu, ins.rt, (uint32_t)(value + imm));
 }
@@ -253,6 +268,10 @@ static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	if (address % 4 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
+		return;
+	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -271,6 +290,10 @@ static inline void op_sb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_sh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	if (address % 2 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_STORE_ERROR);
+		return;
+	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -280,6 +303,10 @@ static inline void op_sh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_sw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	if (address % 4 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_STORE_ERROR);
+		return;
+	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
 		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
 		return;
@@ -330,9 +357,6 @@ static inline void op_srav(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 
 static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu->next_next_pc = cpu->regs[ins.rs];
-	if ((cpu->next_next_pc & 0x03) != 0) {
-		PANIC("Unaligned jump instruction to 0x%08X!", cpu->next_next_pc);
-	}
 }
 
 static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -408,7 +432,8 @@ static inline void op_add(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t b = (int32_t)cpu->regs[ins.rt];
 	int64_t r = (int64_t)a + (int64_t)b;
 	if (r > INT32_MAX || r < INT32_MIN) {
-		PANIC("Addition between %08X and %08X caused an overflow!", a, b);
+		raise_exception(cpu, EXCEPTION_OVERFLOW);
+		return;
 	}
 	cpu_reg_set(cpu, ins.rd, (uint32_t)(a + b));
 }
@@ -661,6 +686,10 @@ static void execute_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 
 void run_next_instruction(struct HakuyaCPU *cpu) {
 	advance_pending_loads(cpu);
+	if (cpu->pc % 4 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
+		return;
+	}
 	uint32_t instruction = bus_read32(cpu->pc);
 	execute_instruction(cpu, instruction);
 

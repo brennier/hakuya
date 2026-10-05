@@ -257,13 +257,17 @@ static inline void op_lb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int32_t)(int8_t)bus_read8(address));
 }
 
-static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+static inline void op_lh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+	if (address % 2 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
 		return;
 	}
-	cpu_reg_set_pending(cpu, ins.rt, bus_read8(address));
+	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
+		return;
+	}
+	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int32_t)(int16_t)bus_read16(address));
 }
 
 static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -277,6 +281,28 @@ static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		return;
 	}
 	cpu_reg_set_pending(cpu, ins.rt, bus_read32(address));
+}
+
+static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		return;
+	}
+	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)bus_read8(address));
+}
+
+static inline void op_lhu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	if (address % 2 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
+		return;
+	}
+	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		return;
+	}
+	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)bus_read16(address));
 }
 
 static inline void op_sb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -586,11 +612,11 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	// 0x10, 0x11, 0x12, and 0x13 are coprocessor codes
 	// 0x14 ~ 0x1F are unused
 	case 0x20: op_lb   (cpu, ins); break;
-	case 0x21: unimplemented(instruction, "lh"); break;
+	case 0x21: op_lh   (cpu, ins); break;
 	case 0x22: unimplemented(instruction, "lwl"); break;
 	case 0x23: op_lw   (cpu, ins); break;
 	case 0x24: op_lbu  (cpu, ins); break;
-	case 0x25: unimplemented(instruction, "lhu"); break;
+	case 0x25: op_lhu  (cpu, ins); break;
 	case 0x26: unimplemented(instruction, "lwr"); break;
 	// 0x27 is unused
 	case 0x28: op_sb   (cpu, ins); break;

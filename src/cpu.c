@@ -29,7 +29,7 @@ struct HakuyaCPU {
 	uint32_t lo;
 	uint32_t regs[32];
 	uint32_t cop0_regs[32];
-	struct {
+	struct PendingLoad {
 		uint32_t reg; // if 0, then no pending load
 		uint32_t value;
 	} pending_load[2];
@@ -57,25 +57,24 @@ struct InstructionTypeJ {
 };
 
 static inline void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
-	if (reg == 0) return;
+	if (reg == REG_ZERO) return;
 	cpu->regs[reg] = value;
 
 	if (reg == cpu->pending_load[0].reg) {
-		cpu->pending_load[0].reg = 0;
+		cpu->pending_load[0] = (struct PendingLoad){ 0 };
 	}
 }
 
 static inline void cpu_reg_set_pending(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
+	if (reg == REG_ZERO) return;
 	cpu->pending_load[1].reg = reg;
 	cpu->pending_load[1].value = value;
 }
 
 static inline void advance_pending_loads(struct HakuyaCPU *cpu) {
-	if (cpu->pending_load[0].reg > 0) {
-		cpu->regs[cpu->pending_load[0].reg] = cpu->pending_load[0].value;
-	}
+	cpu->regs[cpu->pending_load[0].reg] = cpu->pending_load[0].value;
 	cpu->pending_load[0] = cpu->pending_load[1];
-	memset(&cpu->pending_load[1], 0, sizeof(cpu->pending_load[1]));
+	cpu->pending_load[1] = (struct PendingLoad){ 0 };
 }
 
 struct HakuyaCPU *cpu_init(void) {

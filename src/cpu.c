@@ -21,6 +21,13 @@ enum HakuyaRegisterAlias {
 	REG_RA   = 31, // Return Address
 };
 
+enum COP0Register {
+	REG_BADADDR = 8,
+	REG_SR      = 12,
+	REG_CAUSE   = 13,
+	REG_EPC     = 14,
+};
+
 struct HakuyaCPU {
 	uint32_t pc;
 	uint32_t next_pc;
@@ -55,6 +62,33 @@ struct InstructionTypeJ {
 	uint8_t  opcode;
 	uint32_t target;
 };
+
+enum ExceptionCode {
+	EXCEPTION_SYSCALL = 0x08,
+};
+
+static inline void raise_exception(struct HakuyaCPU *cpu, enum ExceptionCode code) {
+        // The first 5 bits of the SR register are left shifted by 2
+	// This disable interrupts and activates kernel mode.
+	uint32_t mode = (cpu->cop0_regs[12] << 2) & 0x3F;
+	cpu->cop0_regs[REG_SR] &= ~(uint32_t)0x3F;
+	cpu->cop0_regs[REG_SR] |= mode;
+
+	// Record the cause and the current PC
+	cpu->cop0_regs[REG_CAUSE] = (uint32_t)code << 2;
+	cpu->cop0_regs[REG_EPC] = cpu->pc;
+
+	// If we're in a branch delay slot
+	if (cpu->next_pc - cpu->pc != 4) {
+		cpu->cop0_regs[REG_EPC] -= 4;
+		cpu->cop0_regs[REG_CAUSE] |= (1u << 31);
+	}
+
+	// Jump with no delay slot depending on the bev bit
+	bool bev_bit = cpu->cop0_regs[REG_SR] & (1 << 22);
+	cpu->next_pc = bev_bit ? 0xBFC00180 : 0x80000080;
+	cpu->next_next_pc = cpu->next_pc + 4;
+}
 
 static inline void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
 	if (reg == REG_ZERO) return;
@@ -306,6 +340,11 @@ static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->pc + 8);
 }
 
+static inline void op_syscall(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_SYSCALL);
+}
+
 static inline void op_mfhi(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->hi);
 }
@@ -458,7 +497,7 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x08: op_jr  (cpu, ins); break;
 	case 0x09: op_jalr(cpu, ins); break;
 	// 0x0A and 0x0B are unused
-	case 0x0C: unimplemented(instruction, "syscall"); break;
+	case 0x0C: op_syscall(cpu, ins); break;
 	case 0x0D: unimplemented(instruction, "break"); break;
 	// 0x0E and 0x0F are unused
 	case 0x10: op_mfhi(cpu, ins); break;
@@ -579,6 +618,13 @@ static void op_mfc0(struct HakuyaCPU *cpu, uint32_t instruction) {
 	fprintf(stderr, "[INFO] The value %08X was moved from cop0[%d]\n", cpu->cop0_regs[rd], rd);
 }
 
+static void op_rfe(struct HakuyaCPU *cpu, uint32_t instruction) {
+	(void)instruction;
+	uint32_t mode = cpu->cop0_regs[REG_SR] & 0x3F;
+	cpu->cop0_regs[REG_SR] &= ~(uint32_t)0x3F;
+	cpu->cop0_regs[REG_SR] |= mode >> 2;
+}
+
 static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t cop_opcode = bit_slice(instruction, 25, 21);
 
@@ -594,7 +640,7 @@ static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction
 		case 0x02: unimplemented(instruction, "tlbwi"); break;
 		case 0x06: unimplemented(instruction, "tlbwr"); break;
 		case 0x08: unimplemented(instruction, "tlbp"); break;
-		case 0x10: unimplemented(instruction, "rfe"); break;
+		case 0x10: op_rfe(cpu, instruction); break;
 		default: PANIC("Unknown COP0 sub instruction: 0x%08X", instruction);
 		}
 		break;

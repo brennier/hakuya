@@ -340,6 +340,48 @@ static inline void op_sw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	bus_write32(address, cpu->regs[ins.rt]);
 }
 
+static inline void op_lwc0(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE);
+}
+
+static inline void op_lwc1(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE);
+}
+
+static inline void op_lwc2(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)cpu;
+	(void)ins;
+	PANIC("Error: %s", "Unimplemented COP2 load word instruction");
+}
+
+static inline void op_lwc3(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE);
+}
+
+static inline void op_swc0(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE);
+}
+
+static inline void op_swc1(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE);
+}
+
+static inline void op_swc2(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)cpu;
+	(void)ins;
+	PANIC("Error: %s", "Unimplemented COP2 store word instruction");
+}
+
+static inline void op_swc3(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE);
+}
+
 static inline void op_sll(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	cpu_reg_set(cpu, ins.rd, cpu->regs[ins.rt] << ins.shamt);
 }
@@ -393,6 +435,11 @@ static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 static inline void op_syscall(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	(void)ins;
 	raise_exception(cpu, EXCEPTION_SYSCALL);
+}
+
+static inline void op_break(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	(void)ins;
+	raise_exception(cpu, EXCEPTION_BREAK);
 }
 
 static inline void op_mfhi(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -549,7 +596,7 @@ static void execute_r_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x09: op_jalr(cpu, ins); break;
 	// 0x0A and 0x0B are unused
 	case 0x0C: op_syscall(cpu, ins); break;
-	case 0x0D: unimplemented(instruction, "break"); break;
+	case 0x0D: op_break  (cpu, ins); break;
 	// 0x0E and 0x0F are unused
 	case 0x10: op_mfhi(cpu, ins); break;
 	case 0x11: op_mthi(cpu, ins); break;
@@ -626,15 +673,15 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	// 0x2C and 0x2D are unused
 	case 0x2E: unimplemented(instruction, "swr"); break;
 	// 0x2F is unused
-	case 0x30: unimplemented(instruction, "lwc0"); break;
-	case 0x31: unimplemented(instruction, "lwc1"); break;
-	case 0x32: unimplemented(instruction, "lwc2"); break;
-	case 0x33: unimplemented(instruction, "lwc3"); break;
+	case 0x30: op_lwc0(cpu, ins); break;
+	case 0x31: op_lwc1(cpu, ins); break;
+	case 0x32: op_lwc2(cpu, ins); break;
+	case 0x33: op_lwc3(cpu, ins); break;
 	// 0x34 ~ 0x37 are unused
-	case 0x38: unimplemented(instruction, "swc0"); break;
-	case 0x39: unimplemented(instruction, "swc1"); break;
-	case 0x3A: unimplemented(instruction, "swc2"); break;
-	case 0x3B: unimplemented(instruction, "swc3"); break;
+	case 0x38: op_swc0(cpu, ins); break;
+	case 0x39: op_swc1(cpu, ins); break;
+	case 0x3A: op_swc2(cpu, ins); break;
+	case 0x3B: op_swc3(cpu, ins); break;
 	// 0x3C ~ 0x3F are unused
 	default: PANIC("Unknown I instruction (instruction: 0x%08X, opcode: 0x%02X)",
 		       instruction, ins.opcode);
@@ -699,6 +746,11 @@ static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction
 	}
 }
 
+static void execute_cop2_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
+	(void)cpu;
+	PANIC("COP2 is unimplemented. (Instruction: %08X)", instruction);
+}
+
 static void execute_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t opcode = bit_slice(instruction, 31, 26);
 	switch (opcode) {
@@ -706,6 +758,9 @@ static void execute_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	case 0x02:
 	case 0x03: execute_j_instruction(cpu, instruction);    break;
 	case 0x10: execute_cop0_instruction(cpu, instruction); break;
+	case 0x11: raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE); break;
+	case 0x12: execute_cop2_instruction(cpu, instruction); break;
+	case 0x13: raise_exception(cpu, EXCEPTION_COPROCESSOR_UNUSABLE); break;
 	default:   execute_i_instruction(cpu, instruction);    break;
 	}
 }

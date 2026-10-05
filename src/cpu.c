@@ -270,6 +270,78 @@ static inline void op_lh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int32_t)(int16_t)bus_read16(address));
 }
 
+static inline void op_lwl(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	uint32_t aligned_address = address & (~(uint32_t)0x03);
+	uint32_t value = bus_read32(aligned_address);
+	uint32_t result;
+	if (cpu->pending_load[1].reg == ins.rt)
+		result = cpu->pending_load[1].value;
+	else
+		result = cpu->regs[ins.rt];
+
+	switch (address % 4) {
+	case 0: result &= 0x00FFFFFF; result |= (value << 24); break;
+	case 1: result &= 0x0000FFFF; result |= (value << 16); break;
+	case 2: result &= 0x000000FF; result |= (value <<  8); break;
+	case 3: result &= 0x00000000; result |= (value <<  0); break;
+	}
+
+	cpu_reg_set_pending(cpu, ins.rt, result);
+}
+
+static inline void op_lwr(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	uint32_t aligned_address = address & (~(uint32_t)0x03);
+	uint32_t value = bus_read32(aligned_address);
+	uint32_t result;
+	if (cpu->pending_load[1].reg == ins.rt)
+		result = cpu->pending_load[1].value;
+	else
+		result = cpu->regs[ins.rt];
+
+	switch (address % 4) {
+	case 0: result &= 0xFF000000; result |= (value >>  0); break;
+	case 1: result &= 0xFFFF0000; result |= (value >>  8); break;
+	case 2: result &= 0xFFFFFF00; result |= (value >> 16); break;
+	case 3: result &= 0xFFFFFFFF; result |= (value >> 24); break;
+	}
+
+	cpu_reg_set_pending(cpu, ins.rt, result);
+}
+
+static inline void op_swl(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	uint32_t aligned_address = address & (~(uint32_t)0x03);
+	uint32_t value  = cpu->regs[ins.rt];
+	uint32_t result = bus_read32(aligned_address);
+
+	switch (address % 4) {
+	case 0: result &= 0xFFFFFF00; result |= (value >> 24); break;
+	case 1: result &= 0xFFFF0000; result |= (value >> 16); break;
+	case 2: result &= 0xFF000000; result |= (value >>  8); break;
+	case 3: result &= 0x00000000; result |= (value >>  0); break;
+	}
+
+	bus_write32(aligned_address, result);
+}
+
+static inline void op_swr(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
+	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
+	uint32_t aligned_address = address & (~(uint32_t)0x03);
+	uint32_t value  = cpu->regs[ins.rt];
+	uint32_t result = bus_read32(aligned_address);
+
+	switch (address % 4) {
+	case 0: result &= 0x00000000; result |= (value <<  0); break;
+	case 1: result &= 0x000000FF; result |= (value <<  8); break;
+	case 2: result &= 0x0000FFFF; result |= (value << 16); break;
+	case 3: result &= 0x00FFFFFF; result |= (value << 24); break;
+	}
+
+	bus_write32(aligned_address, result);
+}
+
 static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if (address % 4 != 0) {
@@ -660,18 +732,18 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	// 0x14 ~ 0x1F are unused
 	case 0x20: op_lb   (cpu, ins); break;
 	case 0x21: op_lh   (cpu, ins); break;
-	case 0x22: unimplemented(instruction, "lwl"); break;
+	case 0x22: op_lwl  (cpu, ins); break;
 	case 0x23: op_lw   (cpu, ins); break;
 	case 0x24: op_lbu  (cpu, ins); break;
 	case 0x25: op_lhu  (cpu, ins); break;
-	case 0x26: unimplemented(instruction, "lwr"); break;
+	case 0x26: op_lwr  (cpu, ins); break;
 	// 0x27 is unused
 	case 0x28: op_sb   (cpu, ins); break;
 	case 0x29: op_sh   (cpu, ins); break;
-	case 0x2A: unimplemented(instruction, "swl"); break;
+	case 0x2A: op_swl  (cpu, ins); break;
 	case 0x2B: op_sw   (cpu, ins); break;
 	// 0x2C and 0x2D are unused
-	case 0x2E: unimplemented(instruction, "swr"); break;
+	case 0x2E: op_swr  (cpu, ins); break;
 	// 0x2F is unused
 	case 0x30: op_lwc0(cpu, ins); break;
 	case 0x31: op_lwc1(cpu, ins); break;

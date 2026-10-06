@@ -34,7 +34,7 @@ The PS1 uses a modified R3000 CPU. This manual explains a lot about how this arc
 A good reference on all of the MIPS opcodes. Simply look up the name of the opcode and read a 1 to 2 page overview of what the opcode does, what are some of the edge cases of the opcode, and how it differs from other similar opcodes.
 
 - [jsgroth's blog (CPU, basic GPU, and SPU)](https://jsgroth.dev/blog/posts/ps1-cpu/)
-Great blog that I also used when programming my gameboy emulator. There's a high several articles on his blog, including:
+Great blog that I also used when programming my gameboy emulator. There's several articles on his blog, including:
   - A high-level overview of MIPS CPU and some of its traps and pitfalls
   - A good article on how to quickly get TTY output and EXE sideloading working
   - Two articles on a basic implementation of the GPU
@@ -42,4 +42,11 @@ Great blog that I also used when programming my gameboy emulator. There's a high
 
 - [Simias Playstation Emulation Guide (CPU, DMA)](https://vojty.github.io/psx-guide/guide.pdf)
 This guide is a step-by-step walkthrough of building a PS1 emulator. There are many, many code snippets showing exactly how he implements each step. It goes through all of the CPU opcodes, basic DMA transfers, and a basic implementation of a GPU using OpenGPL. The goal of the guide is to boot the BIOS. It's unfortunately unfinished and stops right after getting the orange diamond to display.
+
+- [AmiDog's CPU test](https://psx.amidog.se/doku.php?id=psx:download:cpu)
+A comprehensive EXE file for testing the functionality and accuracy of the CPU. Covers quite a few edges cases regarding load delays, branch delays, half loads, undefined divisions, overflow exceptions, etc. It prints results to the TTY as well as the screen, so no GPU is needed.
+
+- [Peter Lemon test roms](https://github.com/PeterLemon/PSX/tree/master)
+A suite of small EXE files for testing individual parts of the emulator. It's particularly good for testing all of the types of GPU draw instructions.
+
 </details>

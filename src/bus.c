@@ -7,6 +7,7 @@
 #include <stdbool.h>
 
 static uint8_t ram[2 * 1024 * 1024] = { 0 };
+static uint8_t scratchpad[1024] = { 0 };
 
 static inline uint32_t ram_read(uint32_t address, int bytes) {
 	uint32_t value = 0;
@@ -18,6 +19,18 @@ static inline uint32_t ram_read(uint32_t address, int bytes) {
 static inline void ram_write(uint32_t address, uint32_t value, int bytes) {
 	for (size_t i = 0; i < (size_t)bytes; i++)
 		ram[address + i] = (uint8_t)(value >> (8 * i));
+}
+
+static inline uint32_t scratchpad_read(uint32_t address, int bytes) {
+	uint32_t value = 0;
+	for (size_t i = 0; i < (size_t)bytes; i++)
+		value |= (uint32_t)(scratchpad[address + i]) << (8 * i);
+	return value;
+}
+
+static inline void scratchpad_write(uint32_t address, uint32_t value, int bytes) {
+	for (size_t i = 0; i < (size_t)bytes; i++)
+		scratchpad[address + i] = (uint8_t)(value >> (8 * i));
 }
 
 typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
@@ -48,6 +61,7 @@ typedef struct {
 static const MemoryRegion MEMORY_REGIONS[] = {
 	{ "RAM",        0x00000000, 2 * 1024 * 1024, ram_write, ram_read },
 	{ "EXPANSION1", 0x1F000000, 8 * 1024 * 1024, NULL, expansion1_read },
+	{ "SCRATCHPAD", 0x1F800000, 1024, scratchpad_write, scratchpad_read },
 	{ "MEM_CTRL",   0x1F801000, 36,  NULL, NULL },
 	{ "RAM_SIZE",   0x1F801060, 4,   NULL, NULL },
 	{ "ISTAT",      0x1F801070, 4,   NULL, NULL },

@@ -487,12 +487,14 @@ static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
-	if (cpu->regs[ins.rs] % 4 != 0) {
+	uint32_t jump_target = cpu->regs[ins.rs];
+	cpu_reg_set(cpu, ins.rd, cpu->pc + 8);
+	if (jump_target % 4 != 0)
+	{
 		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
 		return;
 	}
-	cpu->next_next_pc = cpu->regs[ins.rs];
-	cpu_reg_set(cpu, ins.rd, cpu->pc + 8);
+	cpu->next_next_pc = jump_target;
 }
 
 static inline void op_syscall(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -792,7 +794,7 @@ static void op_mfc0(struct HakuyaCPU *cpu, uint32_t instruction) {
 static void op_rfe(struct HakuyaCPU *cpu, uint32_t instruction) {
 	(void)instruction;
 	uint32_t mode = cpu->cop0_regs[REG_SR] & 0x3F;
-	cpu->cop0_regs[REG_SR] &= ~(uint32_t)0x3F;
+	cpu->cop0_regs[REG_SR] &= ~(uint32_t)0x0F;
 	cpu->cop0_regs[REG_SR] |= (mode >> 2);
 }
 

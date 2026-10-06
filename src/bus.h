@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+extern uint8_t ram[2 * 1024 * 1024];
+extern uint8_t scratchpad[1024];
+
 uint8_t  bus_read8 (uint32_t address);
 uint16_t bus_read16(uint32_t address);
 uint32_t bus_read32(uint32_t address);

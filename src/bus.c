@@ -6,8 +6,11 @@
 #include <stdio.h>
 #include <stdbool.h>
 
-static uint8_t ram[2 * 1024 * 1024] = { 0 };
-static uint8_t scratchpad[1024] = { 0 };
+uint8_t ram[2 * 1024 * 1024] = { 0 };
+uint8_t scratchpad[1024] = { 0 };
+
+typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
+typedef uint32_t (*ReadHandler)(uint32_t address, int bytes);
 
 static inline uint32_t ram_read(uint32_t address, int bytes) {
 	uint32_t value = 0;
@@ -33,9 +36,6 @@ static inline void scratchpad_write(uint32_t address, uint32_t value, int bytes)
 		scratchpad[address + i] = (uint8_t)(value >> (8 * i));
 }
 
-typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
-typedef uint32_t (*ReadHandler)(uint32_t address, int bytes);
-
 static inline uint32_t expansion1_read(uint32_t address, int bytes) {
 	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning all 1's)\n",
 		bytes * 8, "EXPANSION1", address);
@@ -44,7 +44,7 @@ static inline uint32_t expansion1_read(uint32_t address, int bytes) {
 
 static inline uint32_t gpu_read(uint32_t address, int bytes) {
 	// Always signal that the GPU is ready
-	uint32_t result = 0x10000000;
+	uint32_t result = (1u << 26) | (1u << 27) | (1u << 28);
 	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0x%08X)\n",
 		bytes * 8, "GPU", address, result);
 	return result;

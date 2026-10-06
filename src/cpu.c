@@ -100,6 +100,10 @@ static inline void cpu_reg_set(struct HakuyaCPU *cpu, uint32_t reg, uint32_t val
 
 static inline void cpu_reg_set_pending(struct HakuyaCPU *cpu, uint32_t reg, uint32_t value) {
 	if (reg == REG_ZERO) return;
+
+	if (reg == cpu->pending_load[0].reg) {
+		cpu->pending_load[0] = (struct PendingLoad){ 0 };
+	}
 	cpu->pending_load[1].reg = reg;
 	cpu->pending_load[1].value = value;
 }

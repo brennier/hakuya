@@ -276,10 +276,10 @@ static inline void op_lwr(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		result = cpu->regs[ins.rt];
 
 	switch (address % 4) {
-	case 0: result &= 0xFF000000; result |= (value >>  0); break;
-	case 1: result &= 0xFFFF0000; result |= (value >>  8); break;
-	case 2: result &= 0xFFFFFF00; result |= (value >> 16); break;
-	case 3: result &= 0xFFFFFFFF; result |= (value >> 24); break;
+	case 0: result &= 0x00000000; result |= (value >>  0); break;
+	case 1: result &= 0xFF000000; result |= (value >>  8); break;
+	case 2: result &= 0xFFFF0000; result |= (value >> 16); break;
+	case 3: result &= 0xFFFFFF00; result |= (value >> 24); break;
 	}
 
 	cpu_reg_set_pending(cpu, ins.rt, result);
@@ -509,7 +509,7 @@ static inline void op_mult(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int64_t a = (int64_t)(int32_t)cpu->regs[ins.rs];
 	int64_t b = (int64_t)(int32_t)cpu->regs[ins.rt];
 	uint64_t result = (uint64_t)(a * b);
-	cpu->lo = (result & 0xFFFF);
+	cpu->lo = (result & 0xFFFFFFFF);
 	cpu->hi = (result >> 32);
 }
 
@@ -517,7 +517,7 @@ static inline void op_multu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) 
 	uint64_t a = (uint64_t)cpu->regs[ins.rs];
 	uint64_t b = (uint64_t)cpu->regs[ins.rt];
 	uint64_t result = a * b;
-	cpu->lo = (result & 0xFFFF);
+	cpu->lo = (result & 0xFFFFFFFF);
 	cpu->hi = (result >> 32);
 }
 
@@ -525,13 +525,18 @@ static inline void op_div(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t num = (int32_t)cpu->regs[ins.rs];
 	int32_t dem = (int32_t)cpu->regs[ins.rt];
 
-	if (dem == 0 || (num == INT32_MIN && dem == -1)) {
-		fprintf(stderr, "[ERROR] Unimplemented division of %d and %d!\n", num, dem);
-		exit(EXIT_FAILURE);
+	if (dem == 0) {
+		cpu->hi = 0;
+		cpu->lo = 0;
+		cpu->hi = num;
+		cpu->lo = (num < 0) ? 0x00000001u : 0xFFFFFFFFu;
+	} else if (num == INT32_MIN && dem == -1) {
+		cpu->hi = 0x00000000u;
+		cpu->lo = 0x80000000u;
+	} else {
+		cpu->lo = (uint32_t)(num / dem);
+		cpu->hi = (uint32_t)(num % dem);
 	}
-
-	cpu->lo = (uint32_t)(num / dem);
-	cpu->hi = (uint32_t)(num % dem);
 }
 
 static inline void op_divu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -539,12 +544,12 @@ static inline void op_divu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	uint32_t dem = cpu->regs[ins.rt];
 
 	if (dem == 0) {
-		fprintf(stderr, "[ERROR] Division by unimplemented!");
-		exit(EXIT_FAILURE);
+		cpu->hi = num;
+		cpu->lo = 0xFFFFFFFFu;
+	} else {
+		cpu->lo = (uint32_t)(num / dem);
+		cpu->hi = (uint32_t)(num % dem);
 	}
-
-	cpu->lo = (uint32_t)(num / dem);
-	cpu->hi = (uint32_t)(num % dem);
 }
 
 static inline void op_add(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -567,7 +572,8 @@ static inline void op_sub(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t b = (int32_t)cpu->regs[ins.rt];
 	int64_t r = (int64_t)a - (int64_t)b;
 	if (r > INT32_MAX || r < INT32_MIN) {
-		PANIC("Subtraction between %08X and %08X caused an overflow!", a, b);
+		raise_exception(cpu, EXCEPTION_OVERFLOW);
+		return;
 	}
 	cpu_reg_set(cpu, ins.rd, (uint32_t)(a - b));
 }
@@ -753,14 +759,14 @@ static void op_mtc0(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t rt = bit_slice(instruction, 20, 16);
 	uint32_t rd = bit_slice(instruction, 15, 11);
 	cpu->cop0_regs[rd] = cpu->regs[rt];
-	fprintf(stderr, "[INFO] The value %08X was moved to cop0[%d]\n", cpu->regs[rt], rd);
+	/* fprintf(stderr, "[INFO] The value %08X was moved to cop0[%d]\n", cpu->regs[rt], rd); */
 }
 
 static void op_mfc0(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t rt = bit_slice(instruction, 20, 16);
 	uint32_t rd = bit_slice(instruction, 15, 11);
 	cpu_reg_set_pending(cpu, rt, cpu->cop0_regs[rd]);
-	fprintf(stderr, "[INFO] The value %08X was moved from cop0[%d]\n", cpu->cop0_regs[rd], rd);
+	/* fprintf(stderr, "[INFO] The value %08X was moved from cop0[%d]\n", cpu->cop0_regs[rd], rd); */
 }
 
 static void op_rfe(struct HakuyaCPU *cpu, uint32_t instruction) {

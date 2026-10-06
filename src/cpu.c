@@ -250,10 +250,12 @@ static inline void op_lwl(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t aligned_address = address & (~(uint32_t)0x03);
 	uint32_t value = bus_read32(aligned_address);
 	uint32_t result;
-	if (cpu->pending_load[1].reg == ins.rt)
-		result = cpu->pending_load[1].value;
-	else
+	if (cpu->pending_load[0].reg == ins.rt) {
+		result = cpu->pending_load[0].value;
+		cpu->pending_load[0] = (struct PendingLoad){ 0 };
+	} else {
 		result = cpu->regs[ins.rt];
+	}
 
 	switch (address % 4) {
 	case 0: result &= 0x00FFFFFF; result |= (value << 24); break;
@@ -270,10 +272,12 @@ static inline void op_lwr(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t aligned_address = address & (~(uint32_t)0x03);
 	uint32_t value = bus_read32(aligned_address);
 	uint32_t result;
-	if (cpu->pending_load[1].reg == ins.rt)
-		result = cpu->pending_load[1].value;
-	else
+	if (cpu->pending_load[0].reg == ins.rt) {
+		result = cpu->pending_load[0].value;
+		cpu->pending_load[0] = (struct PendingLoad){ 0 };
+	} else {
 		result = cpu->regs[ins.rt];
+	}
 
 	switch (address % 4) {
 	case 0: result &= 0x00000000; result |= (value >>  0); break;
@@ -471,10 +475,18 @@ static inline void op_srav(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 }
 
 static inline void op_jr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	if (cpu->regs[ins.rs] % 4 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
+		return;
+	}
 	cpu->next_next_pc = cpu->regs[ins.rs];
 }
 
 static inline void op_jalr(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
+	if (cpu->regs[ins.rs] % 4 != 0) {
+		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
+		return;
+	}
 	cpu->next_next_pc = cpu->regs[ins.rs];
 	cpu_reg_set(cpu, ins.rd, cpu->pc + 8);
 }
@@ -693,7 +705,12 @@ static void execute_i_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 		case 0x01: op_bgez  (cpu, ins); break;
 		case 0x10: op_bltzal(cpu, ins); break;
 		case 0x11: op_bgezal(cpu, ins); break;
-		default: PANIC("Unknown bcond instruction: 0x%08X", instruction);
+		default:
+			if (instruction & (1u << 16))
+				op_bgez(cpu, ins);
+			else
+				op_bltz(cpu, ins);
+			break;
 		}
 		break;
 	// 0x02 and 0x03 are jump codes here
@@ -759,7 +776,6 @@ static void op_mtc0(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t rt = bit_slice(instruction, 20, 16);
 	uint32_t rd = bit_slice(instruction, 15, 11);
 	cpu->cop0_regs[rd] = cpu->regs[rt];
-	/* fprintf(stderr, "[INFO] The value %08X was moved to cop0[%d]\n", cpu->regs[rt], rd); */
 }
 
 static void op_mfc0(struct HakuyaCPU *cpu, uint32_t instruction) {
@@ -773,7 +789,7 @@ static void op_rfe(struct HakuyaCPU *cpu, uint32_t instruction) {
 	(void)instruction;
 	uint32_t mode = cpu->cop0_regs[REG_SR] & 0x3F;
 	cpu->cop0_regs[REG_SR] &= ~(uint32_t)0x3F;
-	cpu->cop0_regs[REG_SR] |= mode >> 2;
+	cpu->cop0_regs[REG_SR] |= (mode >> 2);
 }
 
 static void execute_cop0_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
@@ -829,10 +845,6 @@ static void print_tty_output(struct HakuyaCPU *cpu) {
 
 void cpu_run_next_instruction(struct HakuyaCPU *cpu) {
 	advance_pending_loads(cpu);
-	if (cpu->pc % 4 != 0) {
-		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
-		return;
-	}
 	uint32_t instruction = bus_read32(cpu->pc);
 	execute_instruction(cpu, instruction);
 	print_tty_output(cpu);

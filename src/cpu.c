@@ -1,6 +1,5 @@
 #include "cpu.h"
 #include <stdbool.h>
-#include <stdint.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,20 +10,6 @@
 #include "debug.h"
 
 #define BIOS_START 0x1FC00000
-
-struct HakuyaCPU {
-	uint32_t pc;
-	uint32_t next_pc;
-	uint32_t next_next_pc;
-	uint32_t hi;
-	uint32_t lo;
-	uint32_t regs[32];
-	uint32_t cop0_regs[32];
-	struct PendingLoad {
-		uint32_t reg; // if 0, then no pending load
-		uint32_t value;
-	} pending_load[2];
-};
 
 enum HakuyaRegisterAlias {
 	REG_ZERO = 0,  // Always zero
@@ -142,7 +127,7 @@ void cpu_reset(struct HakuyaCPU *cpu) {
 	cpu->next_next_pc = cpu->next_pc + 4;
 }
 
-void cpu_print(struct HakuyaCPU *cpu) {
+void cpu_print_regs(struct HakuyaCPU *cpu) {
 	printf("PC: %08X\n", cpu->pc);
 	for (int i = 0; i < 32; i += 4) {
 		printf("R%02d = %08X  R%02d = %08X  R%02d = %08X  R%02d = %08X\n",
@@ -837,6 +822,15 @@ static void execute_instruction(struct HakuyaCPU *cpu, uint32_t instruction) {
 	}
 }
 
+static void print_tty_output(struct HakuyaCPU *cpu) {
+	uint32_t pc = cpu->pc & 0x1FFFFFFF;
+	if (pc == 0xA0 && cpu->regs[9] == 0x3C) {
+		putc((char)cpu->regs[4], stdout);
+	} else if (pc == 0xB0 && cpu->regs[9] == 0x3D) {
+		putc((char)cpu->regs[4], stdout);
+	}
+}
+
 void run_next_instruction(struct HakuyaCPU *cpu) {
 	advance_pending_loads(cpu);
 	if (cpu->pc % 4 != 0) {
@@ -845,6 +839,7 @@ void run_next_instruction(struct HakuyaCPU *cpu) {
 	}
 	uint32_t instruction = bus_read32(cpu->pc);
 	execute_instruction(cpu, instruction);
+	print_tty_output(cpu);
 
 	cpu->pc = cpu->next_pc;
 	cpu->next_pc = cpu->next_next_pc;

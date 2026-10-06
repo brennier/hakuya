@@ -6,6 +6,7 @@
 #include "cpu.h"
 #include "bios.h"
 #include "bus.h"
+#include "gpu.h"
 
 struct HakuyaCore {
 	struct HakuyaCPU cpu;
@@ -26,6 +27,7 @@ void hakuya_core_tick(struct HakuyaCore *core) {
 }
 
 void hakuya_load_bios(struct HakuyaCore *core, const char *bios_path) {
+	(void)core;
 	bios_load(bios_path);
 }
 
@@ -37,6 +39,7 @@ static inline uint32_t read32_le(uint8_t *data) {
 }
 
 void hakuya_run_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_length) {
+	(void)exe_length;
 	while (core->cpu.pc != 0x80030000) {
 		cpu_run_next_instruction(&core->cpu);
 	}
@@ -60,4 +63,10 @@ void hakuya_run_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_lengt
 	while (true) {
 		cpu_run_next_instruction(&core->cpu);
 	}
+}
+
+const uint32_t *hakuya_get_frame(struct HakuyaCore *core) {
+	(void)core;
+	const uint32_t *frame = render_vram();
+	return frame;
 }

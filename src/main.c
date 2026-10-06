@@ -1,9 +1,11 @@
 #include <stdbool.h>
 #include <stdio.h>
+#include <SDL3/SDL.h>
 
 #include "core.h"
 
 #define BIOS_FILE "./bios/SCPH1001.BIN"
+#define EXE_FILE  "psxtest_cpu.exe"
 
 int main(int argc, char *argv[]) {
 	struct HakuyaCore *core = hakuya_core_create();
@@ -15,9 +17,13 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	while (true) {
-		hakuya_core_tick(core);
+	size_t exe_length;
+	uint8_t *exe_data = SDL_LoadFile(EXE_FILE, &exe_length);
+	if (!exe_data) {
+		SDL_Log("Failed to load the file %s", EXE_FILE);
+		return 1;
 	}
+	hakuya_run_exe(core, exe_data, exe_length);
 	hakuya_core_free(core);
 	return 0;
 }

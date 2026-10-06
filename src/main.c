@@ -1,7 +1,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#include "cpu.h"
+#include "core.h"
 #include "bios.h"
 
 #define BIOS_FILE "./bios/SCPH1001.BIN"
@@ -15,10 +15,10 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	struct HakuyaCPU *cpu = cpu_init();
+	struct HakuyaCore *core = hakuya_core_create();
 	while (true) {
-		run_next_instruction(cpu);
+		hakuya_core_tick(core);
 	}
-	cpu_free(cpu);
+	hakuya_core_free(core);
 	return 0;
 }

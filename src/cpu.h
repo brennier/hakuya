@@ -17,10 +17,8 @@ struct HakuyaCPU {
 	} pending_load[2];
 };
 
-struct HakuyaCPU *cpu_init(void);
-void cpu_free(struct HakuyaCPU *cpu);
-void cpu_reset(struct HakuyaCPU *cpu);
-void run_next_instruction(struct HakuyaCPU *cpu);
+void cpu_init(struct HakuyaCPU *cpu);
+void cpu_run_next_instruction(struct HakuyaCPU *cpu);
 void cpu_print_regs(struct HakuyaCPU *cpu);
 
 #endif // HAGKUYA_CPU_H

@@ -110,17 +110,7 @@ static inline void advance_pending_loads(struct HakuyaCPU *cpu) {
 	cpu->pending_load[1] = (struct PendingLoad){ 0 };
 }
 
-struct HakuyaCPU *cpu_init(void) {
-	struct HakuyaCPU *cpu = malloc(sizeof(struct HakuyaCPU));
-	cpu_reset(cpu);
-	return cpu;
-}
-
-void cpu_free(struct HakuyaCPU *cpu) {
-	free(cpu);
-}
-
-void cpu_reset(struct HakuyaCPU *cpu) {
+void cpu_init(struct HakuyaCPU *cpu) {
 	memset(cpu, 0, sizeof(struct HakuyaCPU));
 	cpu->pc = BIOS_START;
 	cpu->next_pc = cpu->pc + 4;
@@ -831,7 +821,7 @@ static void print_tty_output(struct HakuyaCPU *cpu) {
 	}
 }
 
-void run_next_instruction(struct HakuyaCPU *cpu) {
+void cpu_run_next_instruction(struct HakuyaCPU *cpu) {
 	advance_pending_loads(cpu);
 	if (cpu->pc % 4 != 0) {
 		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);

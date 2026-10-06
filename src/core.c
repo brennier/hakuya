@@ -2,7 +2,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
 #include "cpu.h"
 #include "bios.h"
 #include "bus.h"
@@ -38,7 +37,7 @@ static inline uint32_t read32_le(uint8_t *data) {
 	     | ((uint32_t)data[0] <<  0);
 }
 
-void hakuya_run_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_length) {
+void hakuya_start_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_length) {
 	(void)exe_length;
 	while (core->cpu.pc != 0x80030000) {
 		cpu_run_next_instruction(&core->cpu);
@@ -59,10 +58,6 @@ void hakuya_run_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_lengt
 	core->cpu.pc = initial_pc;
 	core->cpu.next_pc = initial_pc + 4;
 	core->cpu.next_next_pc = initial_pc + 8;
-
-	while (true) {
-		cpu_run_next_instruction(&core->cpu);
-	}
 }
 
 const uint32_t *hakuya_get_frame(struct HakuyaCore *core) {

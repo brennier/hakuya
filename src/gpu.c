@@ -27,11 +27,9 @@ static inline uint32_t color16to32(uint16_t c) {
 }
 
 static inline uint16_t color32to16(uint32_t c) {
-	uint16_t result =
-		((c >> 3) & 0x001F) |
-		((c >> 6) & 0x03E0) |
-		((c >> 9) & 0x7C00);
-	return result;
+	uint32_t rb = (c & 0x00F800F8u) >> 3;
+	uint32_t g  = (c & 0x0000F800u);
+	return (uint16_t)(((rb | g) >> 6) | rb);
 }
 
 const uint32_t *render_vram(void) {

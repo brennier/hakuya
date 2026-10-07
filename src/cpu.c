@@ -131,6 +131,26 @@ void cpu_print_regs(struct HakuyaCPU *cpu) {
 	printf("\n");
 }
 
+static inline bool overflow_add(int32_t a, int32_t b, int32_t *result) {
+	uint32_t ua = (uint32_t)a;
+	uint32_t ub = (uint32_t)b;
+	uint32_t uresult = ua + ub;
+	*result = (int32_t)uresult;
+	// If the signs of a and b are the same and the result has a different
+	// sign from a, then a signed overflow as occured.
+	return ((~(ua ^ ub) & (ua ^ uresult)) >> 31);
+}
+
+static inline bool overflow_sub(int32_t a, int32_t b, int32_t *result) {
+	uint32_t ua = (uint32_t)a;
+	uint32_t ub = (uint32_t)b;
+	uint32_t uresult = ua - ub;
+	*result = (int32_t)uresult;
+	// If the signs of a and b are different and the result has a different
+	// sign from a, then a signed overflow as occured.
+	return (((ua ^ ub) & (ua ^ uresult)) >> 31);
+}
+
 static inline void branch(struct HakuyaCPU *cpu, int32_t offset) {
 	int32_t target = (int32_t)cpu->pc + 4 + offset * 4;
 	cpu->next_next_pc = (uint32_t)target;
@@ -187,14 +207,14 @@ static inline void op_bgtz(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 }
 
 static inline void op_addi(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
-	int32_t imm   = (int32_t)(int16_t)ins.immediate;
-	int32_t value = (int32_t)cpu->regs[ins.rs];
-	if ((value > 0 && imm > INT_MAX - value) ||
-	    (value < 0 && imm < INT_MIN - value)) {
+	int32_t a = (int32_t)(int16_t)ins.immediate;
+	int32_t b = (int32_t)cpu->regs[ins.rs];
+	int32_t result;
+	if (overflow_add(a, b, &result)) {
 		raise_exception(cpu, EXCEPTION_OVERFLOW);
 		return;
 	}
-	cpu_reg_set(cpu, ins.rt, (uint32_t)(value + imm));
+	cpu_reg_set(cpu, ins.rt, (uint32_t)result);
 }
 
 static inline void op_addiu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
@@ -542,11 +562,10 @@ static inline void op_multu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) 
 static inline void op_div(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t num = (int32_t)cpu->regs[ins.rs];
 	int32_t dem = (int32_t)cpu->regs[ins.rt];
-
 	if (dem == 0) {
-		cpu->hi = 0;
-		cpu->lo = 0;
-		cpu->hi = num;
+		cpu->hi = (uint32_t)0;
+		cpu->lo = (uint32_t)0;
+		cpu->hi = (uint32_t)num;
 		cpu->lo = (num < 0) ? 0x00000001u : 0xFFFFFFFFu;
 	} else if (num == INT32_MIN && dem == -1) {
 		cpu->hi = 0x00000000u;
@@ -560,7 +579,6 @@ static inline void op_div(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 static inline void op_divu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	uint32_t num = cpu->regs[ins.rs];
 	uint32_t dem = cpu->regs[ins.rt];
-
 	if (dem == 0) {
 		cpu->hi = num;
 		cpu->lo = 0xFFFFFFFFu;
@@ -573,12 +591,12 @@ static inline void op_divu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 static inline void op_add(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t a = (int32_t)cpu->regs[ins.rs];
 	int32_t b = (int32_t)cpu->regs[ins.rt];
-	int64_t r = (int64_t)a + (int64_t)b;
-	if (r > INT32_MAX || r < INT32_MIN) {
+	int32_t result;
+	if (overflow_add(a, b, &result)) {
 		raise_exception(cpu, EXCEPTION_OVERFLOW);
 		return;
 	}
-	cpu_reg_set(cpu, ins.rd, (uint32_t)(a + b));
+	cpu_reg_set(cpu, ins.rd, (uint32_t)result);
 }
 
 static inline void op_addu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
@@ -588,12 +606,12 @@ static inline void op_addu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 static inline void op_sub(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {
 	int32_t a = (int32_t)cpu->regs[ins.rs];
 	int32_t b = (int32_t)cpu->regs[ins.rt];
-	int64_t r = (int64_t)a - (int64_t)b;
-	if (r > INT32_MAX || r < INT32_MIN) {
+	int32_t result;
+	if (overflow_sub(a, b, &result)) {
 		raise_exception(cpu, EXCEPTION_OVERFLOW);
 		return;
 	}
-	cpu_reg_set(cpu, ins.rd, (uint32_t)(a - b));
+	cpu_reg_set(cpu, ins.rd, (uint32_t)result);
 }
 
 static inline void op_subu(struct HakuyaCPU *cpu, struct InstructionTypeR ins) {

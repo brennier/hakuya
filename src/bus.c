@@ -56,6 +56,7 @@ static const MemoryRegion MEMORY_REGIONS[] = {
 	{ "EXPANSION1", 0x1F000000, 8 * 1024 * 1024, NULL, expansion1_read },
 	{ "SCRATCHPAD", 0x1F800000, 1024, scratchpad_write, scratchpad_read },
 	{ "MEM_CTRL",   0x1F801000, 36,  NULL, NULL },
+	{ "JOYPAD",     0x1F801040, 16,  NULL, NULL },
 	{ "RAM_SIZE",   0x1F801060, 4,   NULL, NULL },
 	{ "ISTAT",      0x1F801070, 4,   NULL, NULL },
 	{ "IMASK",      0x1F801074, 4,   NULL, NULL },

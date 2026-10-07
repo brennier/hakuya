@@ -1,4 +1,5 @@
 #include "bus.h"
+#include "gpu.h"
 #include "bios.h"
 #include "debug.h"
 
@@ -42,14 +43,6 @@ static inline uint32_t expansion1_read(uint32_t address, int bytes) {
 	return 0xFFFFFFFF;
 }
 
-static inline uint32_t gpu_read(uint32_t address, int bytes) {
-	// Always signal that the GPU is ready
-	uint32_t result = (1u << 26) | (1u << 27) | (1u << 28);
-	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0x%08X)\n",
-		bytes * 8, "GPU", address, result);
-	return result;
-}
-
 typedef struct {
 	const char *name;
 	uint32_t start;
@@ -67,7 +60,7 @@ static const MemoryRegion MEMORY_REGIONS[] = {
 	{ "ISTAT",      0x1F801070, 4,   NULL, NULL },
 	{ "IMASK",      0x1F801074, 4,   NULL, NULL },
 	{ "DMA",        0x1F801080, 128, NULL, NULL },
-	{ "GPU",        0x1F801810, 8,   NULL, gpu_read },
+	{ "GPU",        0x1F801810, 8,   gpu_write, gpu_read },
 	{ "TIMERS",     0x1F801100, 48,  NULL, NULL },
 	{ "SPU",        0x1F801C00, 640, NULL, NULL },
 	{ "EXPANSION2", 0x1F802000, 8 * 1024,   NULL, NULL },

@@ -65,36 +65,55 @@ static bool hakuya_setup(struct HakuyaApp *app) {
 }
 
 static void hakuya_cleanup(struct HakuyaApp *app) {
+	printf("Cleaning up!\n");
 	hakuya_core_free(app->core);
 	SDL_free(app->exe_data);
-
-	app->core = NULL;
-	app->exe_data = NULL;
-	app->exe_length = 0;
+	SDL_DestroyTexture(app->screen_texture);
+	SDL_DestroyRenderer(app->renderer);
+	SDL_DestroyWindow(app->window);
+	SDL_Quit();
 }
 
 int main(int argc, char *argv[]) {
+	char *bios_path = NULL;
+	char *exe_path  = NULL;
+	for (int i = 1; i + 1 < argc; i += 2) {
+		if (strcmp(argv[i], "-b") == 0) {
+			bios_path = argv[i+1];
+		} else if (strcmp(argv[i], "-e") == 0) {
+			exe_path = argv[i+1];
+		} else {
+			fprintf(stderr, "Error: Unknown flag '%s'\n", argv[i]);
+			fprintf(stderr, "Usage: hakuya -b BIOS_FILE -e [EXE_FILE]\n");
+			return 1;
+		}
+	}
+	if (argc % 2 != 1) {
+		fprintf(stderr, "Error: Unnecessary extra argument '%s'\n", argv[argc-1]);
+		return 1;
+	} else if (!bios_path) {
+		fprintf(stderr, "Error: Please specify a BIOS file\n");
+		fprintf(stderr, "Usage: hakuya -b BIOS_FILE -e [EXE_FILE]\n");
+		return 1;
+	}
+
 	struct HakuyaApp app = { 0 };
 	if (!hakuya_setup(&app)) {
-		fprintf(stderr, "Failed to setup the Hakuya App");
+		fprintf(stderr, "Error: Failed to setup the Hakuya App\n");
 		return 1;
 	}
 
-	switch (argc) {
-	case 1: hakuya_load_bios(app.core, BIOS_FILE); break;
-	case 2: hakuya_load_bios(app.core, argv[1]);   break;
-	default:
-		fprintf(stderr, "Usage: hakuya [BIOS_FILE]\n");
-		return 1;
-	}
+	hakuya_load_bios(app.core, bios_path);
 
-	app.exe_data = SDL_LoadFile(EXE_FILE, &app.exe_length);
-	if (!app.exe_data) {
-		SDL_Log("Failed to load the file %s", EXE_FILE);
-		hakuya_cleanup(&app);
-		return 1;
+	if (exe_path) {
+		app.exe_data = SDL_LoadFile(exe_path, &app.exe_length);
+		if (!app.exe_data) {
+			fprintf(stderr, "Error: Failed to load the file '%s'\n", exe_path);
+			hakuya_cleanup(&app);
+			return 1;
+		}
+		hakuya_start_exe(app.core, app.exe_data, app.exe_length);
 	}
-	hakuya_start_exe(app.core, app.exe_data, app.exe_length);
 
 	bool running = true;
 	while (running) {

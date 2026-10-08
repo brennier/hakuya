@@ -11,7 +11,17 @@ enum GPUCommand {
 	MONOCHROME_OPAQUE_POLY = 0x20,
 	MONOCHROME_SEMITRANS_POLY = 0x22,
 	MONOCHROME_OPAQUE_QUAD = 0x28,
+	MONOCHROME_SEMITRANS_QUAD = 0x2A,
 	MONOCHROME_DOT = 0x68,
+};
+
+static uint8_t gpu_command_length[0xFF] = {
+	[RESET]                     = 1,
+	[MONOCHROME_OPAQUE_POLY]    = 4,
+	[MONOCHROME_SEMITRANS_POLY] = 4,
+	[MONOCHROME_OPAQUE_QUAD]    = 5,
+	[MONOCHROME_SEMITRANS_QUAD] = 5,
+	[MONOCHROME_DOT]            = 2,
 };
 
 typedef struct {
@@ -76,39 +86,32 @@ static inline Vertex read_vertex(uint32_t word) {
 
 void draw_monochrome_triangle(uint16_t color, bool semitrans, Vertex v0, Vertex v1, Vertex v2);
 
-static void gpu_draw_monochrome_opaque_poly(void) {
+static void gpu_draw_monochrome_poly(bool semitrans) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
-	draw_monochrome_triangle(color, false, v1, v2, v3);
+	draw_monochrome_triangle(color, semitrans, v1, v2, v3);
 }
 
-static void gpu_draw_monochrome_semitrans_poly(void) {
-	uint16_t color = color32to16(gpu.word_buffer[0]);
-	Vertex v1 = read_vertex(gpu.word_buffer[1]);
-	Vertex v2 = read_vertex(gpu.word_buffer[2]);
-	Vertex v3 = read_vertex(gpu.word_buffer[3]);
-	draw_monochrome_triangle(color, true, v1, v2, v3);
-}
-
-static void gpu_draw_monochrome_opaque_quad(void) {
+static void gpu_draw_monochrome_quad(bool semitrans) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
 	Vertex v4 = read_vertex(gpu.word_buffer[4]);
-	draw_monochrome_triangle(color, false, v1, v2, v3);
-	draw_monochrome_triangle(color, false, v3, v2, v4);
+	draw_monochrome_triangle(color, semitrans, v1, v2, v3);
+	draw_monochrome_triangle(color, semitrans, v3, v2, v4);
 }
 
 static void gpu_execute_command(void) {
 	switch (gpu.command) {
 	case RESET: break;
-	case MONOCHROME_DOT: gpu_draw_monochrome_dot(); break;
-	case MONOCHROME_OPAQUE_POLY: gpu_draw_monochrome_opaque_poly(); break;
-	case MONOCHROME_SEMITRANS_POLY: gpu_draw_monochrome_semitrans_poly(); break;
-	case MONOCHROME_OPAQUE_QUAD: gpu_draw_monochrome_opaque_quad(); break;
+	case MONOCHROME_DOT:            gpu_draw_monochrome_dot();       break;
+	case MONOCHROME_OPAQUE_POLY:    gpu_draw_monochrome_poly(false); break;
+	case MONOCHROME_SEMITRANS_POLY: gpu_draw_monochrome_poly(true);  break;
+	case MONOCHROME_OPAQUE_QUAD:    gpu_draw_monochrome_quad(false); break;
+	case MONOCHROME_SEMITRANS_QUAD: gpu_draw_monochrome_quad(true);  break;
 	}
 }
 
@@ -122,48 +125,27 @@ uint32_t gpu_read(uint32_t address, int bytes) {
 
 void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
 	(void)bytes;
-	if (rel_address == 0) {
-		if (gpu.remaining_words == 0) {
-			gpu.command = (value >> 24);
-			switch (gpu.command) {
-			case RESET:
-				gpu.current_word = 0;
-				gpu.remaining_words = 0;
-				break;
-			case MONOCHROME_DOT:
-				gpu.current_word = 0;
-				gpu.word_buffer[gpu.current_word++] = value;
-				gpu.remaining_words = 1;
-				break;
-			case MONOCHROME_OPAQUE_POLY:
-				gpu.current_word = 0;
-				gpu.word_buffer[gpu.current_word++] = value;
-				gpu.remaining_words = 3;
-				break;
-			case MONOCHROME_SEMITRANS_POLY:
-				gpu.current_word = 0;
-				gpu.word_buffer[gpu.current_word++] = value;
-				gpu.remaining_words = 3;
-				break;
-			case MONOCHROME_OPAQUE_QUAD:
-				gpu.current_word = 0;
-				gpu.word_buffer[gpu.current_word++] = value;
-				gpu.remaining_words = 4;
-				break;
-			default:
-				fprintf(stderr, "[INFO] Unimplemented GPU0 write with value %08X\n", value);
-				break;
-			}
-		} else {
-			gpu.word_buffer[gpu.current_word++] = value;
-			gpu.remaining_words--;
-		}
+	if (rel_address == 4) {
+		return;
+	}
 
-		if (gpu.current_word != 0 && gpu.remaining_words == 0) {
-			gpu_execute_command();
-			gpu.remaining_words = 0;
-			gpu.current_word = 0;
+	if (gpu.remaining_words == 0) {
+		gpu.command = (value >> 24);
+		uint8_t command_length = gpu_command_length[gpu.command];
+		if (command_length == 0) {
+			fprintf(stderr, "[INFO] Unimplemented GPU0 write with value %08X\n", value);
+			return;
 		}
+		gpu.current_word = 0;
+		gpu.remaining_words = command_length;
+	}
+	gpu.word_buffer[gpu.current_word++] = value;
+	gpu.remaining_words--;
+
+	if (gpu.remaining_words == 0) {
+		gpu_execute_command();
+		gpu.remaining_words = 0;
+		gpu.current_word = 0;
 	}
 }
 

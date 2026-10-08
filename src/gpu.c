@@ -14,12 +14,12 @@ struct HakuyaGPU {
 	uint8_t  remaining_words;
 
 	uint16_t vram[512][1024];
-	uint32_t output[512][1024];
 } gpu;
 
 static inline uint32_t color16to32(uint16_t c) {
-	uint32_t rb = ((c << 9) | (c << 3)) & 0x00F800F8;
-	uint32_t g  = (c << 6) & 0x0000F800u;
+	uint32_t c32 = (uint32_t)c;
+	uint32_t rb = ((c32 << 9) | (c32 << 3)) & 0x00F800F8u;
+	uint32_t g  = (c32 << 6) & 0x0000F800u;
 	uint32_t result = 0xFF000000u | rb | g;
 	return result | ((result >> 5) & 0x00070707u);
 }
@@ -30,11 +30,16 @@ static inline uint16_t color32to16(uint32_t c) {
 	return (uint16_t)(((rb | g) >> 6) | rb);
 }
 
-const uint32_t *render_vram(void) {
-	for (int y = 0; y <  512; y++)
-	for (int x = 0; x < 1024; x++)
-		gpu.output[y][x] = color16to32(gpu.vram[y][x]);
-	return (const uint32_t*)gpu.output;
+void gpu_render_vram_u32(uint32_t *output_buffer) {
+	uint16_t *flat_vram = (uint16_t*)gpu.vram;
+	for (int i = 0; i < 512 * 1024; i++)
+		output_buffer[i] = color16to32(flat_vram[i]);
+}
+
+void gpu_render_vram_u16(uint16_t *output_buffer) {
+	uint16_t *flat_vram = (uint16_t*)gpu.vram;
+	for (int i = 0; i < 512 * 1024; i++)
+		output_buffer[i] = flat_vram[i];
 }
 
 static void gpu_draw_monochrome_dot(void) {

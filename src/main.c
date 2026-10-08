@@ -52,7 +52,7 @@ static bool hakuya_setup(struct HakuyaApp *app) {
 	}
 
 	app->screen_texture = SDL_CreateTexture(app->renderer,
-						SDL_PIXELFORMAT_XBGR8888,
+						SDL_PIXELFORMAT_XBGR1555,
 						SDL_TEXTUREACCESS_STREAMING,
 						WINDOW_WIDTH, WINDOW_HEIGHT);
 	if (!app->screen_texture) {
@@ -115,6 +115,7 @@ int main(int argc, char *argv[]) {
 		hakuya_start_exe(app.core, app.exe_data, app.exe_length);
 	}
 
+	uint16_t frame[512][1024];
 	bool running = true;
 	while (running) {
 		while (SDL_PollEvent(&app.event)) {
@@ -127,8 +128,8 @@ int main(int argc, char *argv[]) {
 			hakuya_core_tick(app.core);
 		}
 
-		const uint32_t *frame = hakuya_get_frame(app.core);
-		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint32_t) * 1024);
+		hakuya_render_vram_u16(app.core, (uint16_t*)frame);
+		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint16_t) * 1024);
 		SDL_RenderTexture(app.renderer, app.screen_texture, NULL, NULL);
 		SDL_RenderPresent(app.renderer);
 	}

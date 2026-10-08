@@ -250,7 +250,7 @@ static inline void op_lui(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 static inline void op_lb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int32_t)(int8_t)bus_read8(address));
@@ -263,7 +263,7 @@ static inline void op_lh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		return;
 	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)(int32_t)(int16_t)bus_read16(address));
@@ -352,7 +352,7 @@ static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		return;
 	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	cpu_reg_set_pending(cpu, ins.rt, bus_read32(address));
@@ -361,7 +361,7 @@ static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)bus_read8(address));
@@ -374,7 +374,7 @@ static inline void op_lhu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		return;
 	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	cpu_reg_set_pending(cpu, ins.rt, (uint32_t)bus_read16(address));
@@ -383,7 +383,7 @@ static inline void op_lhu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 static inline void op_sb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	bus_write8(address, cpu->regs[ins.rt] & 0xFF);
@@ -396,7 +396,7 @@ static inline void op_sh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		return;
 	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	bus_write16(address, cpu->regs[ins.rt] & 0xFFFF);
@@ -409,7 +409,7 @@ static inline void op_sw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		return;
 	}
 	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
-		fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address);
+		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
 	bus_write32(address, cpu->regs[ins.rt]);

@@ -8,20 +8,20 @@
 
 enum GPUCommand {
 	RESET = 0x00,
-	MONOCHROME_OPAQUE_POLY = 0x20,
-	MONOCHROME_SEMITRANS_POLY = 0x22,
-	MONOCHROME_OPAQUE_QUAD = 0x28,
-	MONOCHROME_SEMITRANS_QUAD = 0x2A,
-	MONOCHROME_DOT = 0x68,
+	POLY_MONO_OPAQUE    = 0x20,
+	POLY_MONO_SEMITRANS = 0x22,
+	QUAD_MONO_OPAQUE    = 0x28,
+	QUAD_MONO_SEMITRANS = 0x2A,
+	DOT_MONO_OPAQUE     = 0x68,
 };
 
 static uint8_t gpu_command_length[0xFF] = {
-	[RESET]                     = 1,
-	[MONOCHROME_OPAQUE_POLY]    = 4,
-	[MONOCHROME_SEMITRANS_POLY] = 4,
-	[MONOCHROME_OPAQUE_QUAD]    = 5,
-	[MONOCHROME_SEMITRANS_QUAD] = 5,
-	[MONOCHROME_DOT]            = 2,
+	[RESET]               = 1,
+	[POLY_MONO_OPAQUE]    = 4,
+	[POLY_MONO_SEMITRANS] = 4,
+	[QUAD_MONO_OPAQUE]    = 5,
+	[QUAD_MONO_SEMITRANS] = 5,
+	[DOT_MONO_OPAQUE]     = 2,
 };
 
 typedef struct {
@@ -70,13 +70,6 @@ void gpu_render_vram_u16(uint16_t *output_buffer) {
 		output_buffer[i] = flat_vram[i];
 }
 
-static void gpu_draw_monochrome_dot(void) {
-	uint16_t color = color32to16(gpu.word_buffer[0]);
-	uint32_t x = (gpu.word_buffer[1] >>  0) & 0x3FF;
-	uint32_t y = (gpu.word_buffer[1] >> 16) & 0x1FF;
-	gpu.vram[y][x] = color;
-}
-
 static inline Vertex read_vertex(uint32_t word) {
 	return (Vertex){
 		.x = (word >>  0) & 0x3FF,
@@ -86,7 +79,7 @@ static inline Vertex read_vertex(uint32_t word) {
 
 void draw_monochrome_triangle(uint16_t color, bool semitrans, Vertex v0, Vertex v1, Vertex v2);
 
-static void gpu_draw_monochrome_poly(bool semitrans) {
+static void gpu_draw_poly_mono(bool semitrans) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
@@ -94,7 +87,7 @@ static void gpu_draw_monochrome_poly(bool semitrans) {
 	draw_monochrome_triangle(color, semitrans, v1, v2, v3);
 }
 
-static void gpu_draw_monochrome_quad(bool semitrans) {
+static void gpu_draw_quad_mono(bool semitrans) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
@@ -104,14 +97,20 @@ static void gpu_draw_monochrome_quad(bool semitrans) {
 	draw_monochrome_triangle(color, semitrans, v3, v2, v4);
 }
 
+static void gpu_draw_dot_mono(void) {
+	uint16_t color = color32to16(gpu.word_buffer[0]);
+	Vertex v = read_vertex(gpu.word_buffer[1]);
+	gpu.vram[v.y][v.x] = color;
+}
+
 static void gpu_execute_command(void) {
 	switch (gpu.command) {
 	case RESET: break;
-	case MONOCHROME_DOT:            gpu_draw_monochrome_dot();       break;
-	case MONOCHROME_OPAQUE_POLY:    gpu_draw_monochrome_poly(false); break;
-	case MONOCHROME_SEMITRANS_POLY: gpu_draw_monochrome_poly(true);  break;
-	case MONOCHROME_OPAQUE_QUAD:    gpu_draw_monochrome_quad(false); break;
-	case MONOCHROME_SEMITRANS_QUAD: gpu_draw_monochrome_quad(true);  break;
+	case POLY_MONO_OPAQUE:    gpu_draw_poly_mono(false); break;
+	case POLY_MONO_SEMITRANS: gpu_draw_poly_mono(true);  break;
+	case QUAD_MONO_OPAQUE:    gpu_draw_quad_mono(false); break;
+	case QUAD_MONO_SEMITRANS: gpu_draw_quad_mono(true);  break;
+	case DOT_MONO_OPAQUE:     gpu_draw_dot_mono();       break;
 	}
 }
 

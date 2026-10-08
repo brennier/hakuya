@@ -9,6 +9,7 @@
 enum GPUCommand {
 	RESET = 0x00,
 	MONOCHROME_OPAQUE_POLY = 0x20,
+	MONOCHROME_SEMITRANS_POLY = 0x22,
 	MONOCHROME_OPAQUE_QUAD = 0x28,
 	MONOCHROME_DOT = 0x68,
 };
@@ -26,6 +27,12 @@ struct HakuyaGPU {
 
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
+
+static inline uint16_t blend_average16(uint16_t c1, uint16_t c2) {
+	uint16_t half_c1 = (c1 >> 1) & 0x3DEFu;
+	uint16_t half_c2 = (c2 >> 1) & 0x3DEFu;
+	return 0x8000 | (half_c1 + half_c2);
+}
 
 static inline uint32_t color16to32(uint16_t c) {
 	uint32_t c32 = (uint32_t)c;
@@ -67,14 +74,22 @@ static inline Vertex read_vertex(uint32_t word) {
 	};
 }
 
-void draw_monochrome_triangle(uint16_t color, Vertex v0, Vertex v1, Vertex v2);
+void draw_monochrome_triangle(uint16_t color, bool semitrans, Vertex v0, Vertex v1, Vertex v2);
 
 static void gpu_draw_monochrome_opaque_poly(void) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
-	draw_monochrome_triangle(color, v1, v2, v3);
+	draw_monochrome_triangle(color, false, v1, v2, v3);
+}
+
+static void gpu_draw_monochrome_semitrans_poly(void) {
+	uint16_t color = color32to16(gpu.word_buffer[0]);
+	Vertex v1 = read_vertex(gpu.word_buffer[1]);
+	Vertex v2 = read_vertex(gpu.word_buffer[2]);
+	Vertex v3 = read_vertex(gpu.word_buffer[3]);
+	draw_monochrome_triangle(color, true, v1, v2, v3);
 }
 
 static void gpu_draw_monochrome_opaque_quad(void) {
@@ -83,8 +98,8 @@ static void gpu_draw_monochrome_opaque_quad(void) {
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
 	Vertex v4 = read_vertex(gpu.word_buffer[4]);
-	draw_monochrome_triangle(color, v1, v2, v3);
-	draw_monochrome_triangle(color, v3, v2, v4);
+	draw_monochrome_triangle(color, false, v1, v2, v3);
+	draw_monochrome_triangle(color, false, v3, v2, v4);
 }
 
 static void gpu_execute_command(void) {
@@ -92,6 +107,7 @@ static void gpu_execute_command(void) {
 	case RESET: break;
 	case MONOCHROME_DOT: gpu_draw_monochrome_dot(); break;
 	case MONOCHROME_OPAQUE_POLY: gpu_draw_monochrome_opaque_poly(); break;
+	case MONOCHROME_SEMITRANS_POLY: gpu_draw_monochrome_semitrans_poly(); break;
 	case MONOCHROME_OPAQUE_QUAD: gpu_draw_monochrome_opaque_quad(); break;
 	}
 }
@@ -120,6 +136,11 @@ void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
 				gpu.remaining_words = 1;
 				break;
 			case MONOCHROME_OPAQUE_POLY:
+				gpu.current_word = 0;
+				gpu.word_buffer[gpu.current_word++] = value;
+				gpu.remaining_words = 3;
+				break;
+			case MONOCHROME_SEMITRANS_POLY:
 				gpu.current_word = 0;
 				gpu.word_buffer[gpu.current_word++] = value;
 				gpu.remaining_words = 3;
@@ -178,7 +199,7 @@ static inline bool is_top_or_left(Vertex v1, Vertex v2) {
 	return (sub.y < 0) || (sub.y == 0 && sub.x > 0);
 }
 
-void draw_monochrome_triangle(uint16_t color, Vertex v0, Vertex v1, Vertex v2) {
+void draw_monochrome_triangle(uint16_t color, bool semitrans, Vertex v0, Vertex v1, Vertex v2) {
 	// Compute the bounding box of the triangle
 	int min_x = find_min(v0.x, v1.x, v2.x);
 	int min_y = find_min(v0.y, v1.y, v2.y);
@@ -239,7 +260,11 @@ void draw_monochrome_triangle(uint16_t color, Vertex v0, Vertex v1, Vertex v2) {
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
-				*pixel = color;
+				if (semitrans) {
+					*pixel = blend_average16(color, *pixel);
+				} else {
+					*pixel = color;
+				}
 			} else if (reached_triangle) {
 				break;
 			}

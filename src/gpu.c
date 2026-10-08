@@ -8,20 +8,34 @@
 
 enum GPUCommand {
 	RESET = 0x00,
-	POLY_MONO_OPAQUE    = 0x20,
-	POLY_MONO_SEMITRANS = 0x22,
-	QUAD_MONO_OPAQUE    = 0x28,
-	QUAD_MONO_SEMITRANS = 0x2A,
-	DOT_MONO_OPAQUE     = 0x68,
+	POLY_MONO_OPAQUE      = 0x20,
+	POLY_MONO_SEMITRANS   = 0x22,
+	QUAD_MONO_OPAQUE      = 0x28,
+	QUAD_MONO_SEMITRANS   = 0x2A,
+	RECT_MONO_OPAQUE      = 0x60,
+	RECT_MONO_SEMITRANS   = 0x62,
+	DOT_MONO_OPAQUE       = 0x68,
+	DOT_MONO_SEMITRANS    = 0x6A,
+	RECT8_MONO_OPAQUE     = 0x70,
+	RECT8_MONO_SEMITRANS  = 0x72,
+	RECT16_MONO_OPAQUE    = 0x78,
+	RECT16_MONO_SEMITRANS = 0x7A,
 };
 
 static uint8_t gpu_command_length[0xFF] = {
-	[RESET]               = 1,
-	[POLY_MONO_OPAQUE]    = 4,
-	[POLY_MONO_SEMITRANS] = 4,
-	[QUAD_MONO_OPAQUE]    = 5,
-	[QUAD_MONO_SEMITRANS] = 5,
-	[DOT_MONO_OPAQUE]     = 2,
+	[RESET]                 = 1,
+	[POLY_MONO_OPAQUE]      = 4,
+	[POLY_MONO_SEMITRANS]   = 4,
+	[QUAD_MONO_OPAQUE]      = 5,
+	[QUAD_MONO_SEMITRANS]   = 5,
+	[RECT_MONO_OPAQUE]      = 3,
+	[RECT_MONO_SEMITRANS]   = 3,
+	[DOT_MONO_OPAQUE]       = 2,
+	[DOT_MONO_SEMITRANS]    = 2,
+	[RECT8_MONO_OPAQUE]     = 2,
+	[RECT8_MONO_SEMITRANS]  = 2,
+	[RECT16_MONO_OPAQUE]    = 2,
+	[RECT16_MONO_SEMITRANS] = 2,
 };
 
 typedef struct {
@@ -78,6 +92,7 @@ static inline Vertex read_vertex(uint32_t word) {
 }
 
 void draw_monochrome_triangle(uint16_t color, bool semitrans, Vertex v0, Vertex v1, Vertex v2);
+void draw_monochrome_rectangle(uint16_t color, bool semitrans, Vertex pos, Vertex size);
 
 static void gpu_draw_poly_mono(bool semitrans) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
@@ -97,20 +112,31 @@ static void gpu_draw_quad_mono(bool semitrans) {
 	draw_monochrome_triangle(color, semitrans, v3, v2, v4);
 }
 
-static void gpu_draw_dot_mono(void) {
+static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
-	Vertex v = read_vertex(gpu.word_buffer[1]);
-	gpu.vram[v.y][v.x] = color;
+	Vertex pos = read_vertex(gpu.word_buffer[1]);
+	Vertex size = (Vertex){ .x = fixed_size, .y = fixed_size };
+	if (fixed_size == 0) {
+		size = read_vertex(gpu.word_buffer[2]);
+	}
+	draw_monochrome_rectangle(color, semitrans, pos, size);
 }
 
 static void gpu_execute_command(void) {
 	switch (gpu.command) {
 	case RESET: break;
-	case POLY_MONO_OPAQUE:    gpu_draw_poly_mono(false); break;
-	case POLY_MONO_SEMITRANS: gpu_draw_poly_mono(true);  break;
-	case QUAD_MONO_OPAQUE:    gpu_draw_quad_mono(false); break;
-	case QUAD_MONO_SEMITRANS: gpu_draw_quad_mono(true);  break;
-	case DOT_MONO_OPAQUE:     gpu_draw_dot_mono();       break;
+	case POLY_MONO_OPAQUE:      gpu_draw_poly_mono(false);     break;
+	case POLY_MONO_SEMITRANS:   gpu_draw_poly_mono(true);      break;
+	case QUAD_MONO_OPAQUE:      gpu_draw_quad_mono(false);     break;
+	case QUAD_MONO_SEMITRANS:   gpu_draw_quad_mono(true);      break;
+	case RECT_MONO_OPAQUE:      gpu_draw_rect_mono(0, false);  break;
+	case RECT_MONO_SEMITRANS:   gpu_draw_rect_mono(0, true);   break;
+	case DOT_MONO_OPAQUE:       gpu_draw_rect_mono(1, false);  break;
+	case DOT_MONO_SEMITRANS:    gpu_draw_rect_mono(1, true);   break;
+	case RECT8_MONO_OPAQUE:     gpu_draw_rect_mono(8, false);  break;
+	case RECT8_MONO_SEMITRANS:  gpu_draw_rect_mono(8, true);   break;
+	case RECT16_MONO_OPAQUE:    gpu_draw_rect_mono(16, false); break;
+	case RECT16_MONO_SEMITRANS: gpu_draw_rect_mono(16, true);  break;
 	}
 }
 
@@ -178,6 +204,20 @@ static inline Vertex vec2_sub(Vertex u, Vertex v) {
 static inline bool is_top_or_left(Vertex v1, Vertex v2) {
 	Vertex sub = vec2_sub(v2, v1);
 	return (sub.y < 0) || (sub.y == 0 && sub.x > 0);
+}
+
+void draw_monochrome_rectangle(uint16_t color, bool semitrans, Vertex pos, Vertex size) {
+	if (semitrans) {
+		for (int y = pos.y; y < pos.y + size.y; y++)
+		for (int x = pos.x; x < pos.x + size.x; x++) {
+			uint16_t *pixel = &gpu.vram[y][x];
+			*pixel = blend_average16(color, *pixel);
+		}
+	} else {
+		for (int y = pos.y; y < pos.y + size.y; y++)
+		for (int x = pos.x; x < pos.x + size.x; x++)
+			gpu.vram[y][x] = color;
+	}
 }
 
 void draw_monochrome_triangle(uint16_t color, bool semitrans, Vertex v0, Vertex v1, Vertex v2) {

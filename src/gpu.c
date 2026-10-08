@@ -18,12 +18,10 @@ struct HakuyaGPU {
 } gpu;
 
 static inline uint32_t color16to32(uint16_t c) {
-	uint32_t result =
-		((c << 9) & 0x00F80000) |
-		((c << 6) & 0x0000F800) |
-		((c << 3) & 0x000000F8);
-	result |= (result >> 5) & 0x00070707;
-	return result | 0xFF000000;
+	uint32_t rb = ((c << 9) | (c << 3)) & 0x00F800F8;
+	uint32_t g  = (c << 6) & 0x0000F800u;
+	uint32_t result = 0xFF000000u | rb | g;
+	return result | ((result >> 5) & 0x00070707u);
 }
 
 static inline uint16_t color32to16(uint32_t c) {

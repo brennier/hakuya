@@ -8,7 +8,8 @@
 
 enum GPUCommand {
 	RESET = 0x00,
-	MONOCHROME_OPAQUE_TRIANGLE = 0x20,
+	MONOCHROME_OPAQUE_POLY = 0x20,
+	MONOCHROME_OPAQUE_QUAD = 0x28,
 	MONOCHROME_DOT = 0x68,
 };
 
@@ -68,7 +69,7 @@ static inline Vertex read_vertex(uint32_t word) {
 
 void draw_monochrome_triangle(uint16_t color, Vertex v0, Vertex v1, Vertex v2);
 
-static void gpu_draw_monochrome_opaque_triangle(void) {
+static void gpu_draw_monochrome_opaque_poly(void) {
 	uint16_t color = color32to16(gpu.word_buffer[0]);
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
@@ -76,11 +77,22 @@ static void gpu_draw_monochrome_opaque_triangle(void) {
 	draw_monochrome_triangle(color, v1, v2, v3);
 }
 
+static void gpu_draw_monochrome_opaque_quad(void) {
+	uint16_t color = color32to16(gpu.word_buffer[0]);
+	Vertex v1 = read_vertex(gpu.word_buffer[1]);
+	Vertex v2 = read_vertex(gpu.word_buffer[2]);
+	Vertex v3 = read_vertex(gpu.word_buffer[3]);
+	Vertex v4 = read_vertex(gpu.word_buffer[4]);
+	draw_monochrome_triangle(color, v1, v2, v3);
+	draw_monochrome_triangle(color, v3, v2, v4);
+}
+
 static void gpu_execute_command(void) {
 	switch (gpu.command) {
 	case RESET: break;
 	case MONOCHROME_DOT: gpu_draw_monochrome_dot(); break;
-	case MONOCHROME_OPAQUE_TRIANGLE: gpu_draw_monochrome_opaque_triangle(); break;
+	case MONOCHROME_OPAQUE_POLY: gpu_draw_monochrome_opaque_poly(); break;
+	case MONOCHROME_OPAQUE_QUAD: gpu_draw_monochrome_opaque_quad(); break;
 	}
 }
 
@@ -107,10 +119,15 @@ void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
 				gpu.word_buffer[gpu.current_word++] = value;
 				gpu.remaining_words = 1;
 				break;
-			case MONOCHROME_OPAQUE_TRIANGLE:
+			case MONOCHROME_OPAQUE_POLY:
 				gpu.current_word = 0;
 				gpu.word_buffer[gpu.current_word++] = value;
 				gpu.remaining_words = 3;
+				break;
+			case MONOCHROME_OPAQUE_QUAD:
+				gpu.current_word = 0;
+				gpu.word_buffer[gpu.current_word++] = value;
+				gpu.remaining_words = 4;
 				break;
 			default:
 				fprintf(stderr, "[INFO] Unimplemented GPU0 write with value %08X\n", value);

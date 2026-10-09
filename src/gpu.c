@@ -52,10 +52,20 @@ struct HakuyaGPU {
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
 
-static inline uint16_t blend_average16(uint16_t c1, uint16_t c2) {
-	uint16_t half_c1 = (c1 >> 1) & 0x3DEFu;
-	uint16_t half_c2 = (c2 >> 1) & 0x3DEFu;
-	return 0x8000 | (half_c1 + half_c2);
+// This does floor((a+b)/2)
+static inline uint16_t blend_average16(uint16_t a, uint16_t b) {
+	return (a & b) + (((a ^ b) >> 1) & 0x3DEFu);
+}
+
+static inline uint16_t blend_add16(uint16_t a, uint16_t b) {
+	unsigned avg = blend_average16(a,b);
+	unsigned sum = ((avg << 1) & 0x7BDEu) | ((a ^ b) & 0x0421u); // (a+b) mod 32 per channel
+	unsigned ovf = (avg >> 4) & 0x0421u; // 1 at bit 0 of each overflowed channel
+	return (uint16_t)(sum | (ovf * 31u));
+}
+
+static inline uint16_t blend_quarter16(uint16_t a, uint16_t b) {
+	return blend_add16(a, (b >> 2) & 0x1CE7);
 }
 
 static inline uint32_t color16to32(uint16_t c) {

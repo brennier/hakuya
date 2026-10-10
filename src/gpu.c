@@ -24,6 +24,7 @@ enum GPUCommand {
 	RECT8_MONO_SEMITRANS  = 0x72,
 	RECT16_MONO_OPAQUE    = 0x78,
 	RECT16_MONO_SEMITRANS = 0x7A,
+	SET_DRAWING_SETTINGS  = 0xE1,
 	SET_DRAWING_AREA_BEG  = 0xE3,
 	SET_DRAWING_AREA_END  = 0xE4,
 };
@@ -46,6 +47,7 @@ static uint8_t gpu_command_length[0xFF] = {
 	[RECT8_MONO_SEMITRANS]  = 2,
 	[RECT16_MONO_OPAQUE]    = 2,
 	[RECT16_MONO_SEMITRANS] = 2,
+	[SET_DRAWING_SETTINGS]  = 1,
 	[SET_DRAWING_AREA_BEG]  = 1,
 	[SET_DRAWING_AREA_END]  = 1,
 };
@@ -68,6 +70,7 @@ struct HakuyaGPU {
 	Rectangle display_area;
 	Vertex drawing_area_beg;
 	Vertex drawing_area_end;
+	bool dithering_enabled;
 
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
@@ -222,6 +225,9 @@ static void gpu_execute_command(void) {
 	case RECT8_MONO_SEMITRANS:  gpu_draw_rect_mono(8, true);   break;
 	case RECT16_MONO_OPAQUE:    gpu_draw_rect_mono(16, false); break;
 	case RECT16_MONO_SEMITRANS: gpu_draw_rect_mono(16, true);  break;
+	case SET_DRAWING_SETTINGS:
+		gpu.dithering_enabled = (gpu.word_buffer[0]) & (1u << 9);
+		break;
 	case SET_DRAWING_AREA_BEG:
 		gpu.drawing_area_beg = (Vertex){
 			.x = (gpu.word_buffer[0] >>  0) & 0x3FF,
@@ -293,15 +299,15 @@ void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
 	}
 }
 
-static inline int find_max(int a, int b, int c) {
-	int max = a;
+static inline int16_t find_max(int16_t a, int16_t b, int16_t c) {
+	int16_t max = a;
 	if (b > max) max = b;
 	if (c > max) max = c;
 	return max;
 }
 
-static inline int find_min(int a, int b, int c) {
-	int min = a;
+static inline int16_t find_min(int16_t a, int16_t b, int16_t c) {
+	int16_t min = a;
 	if (b < min) min = b;
 	if (c < min) min = c;
 	return min;
@@ -348,6 +354,32 @@ void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Verte
 	}
 }
 
+static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
+	static const int16_t dither_pattern[4][4] = {
+		{ -4, +0, -3, +1 },
+		{ +2, -2, +3, -1 },
+		{ -3, +1, -4, +0 },
+		{ +3, -1, +2, -2 },
+	};
+	int16_t dither_offset = dither_pattern[y & 0x03][x & 0x03];
+	int32_t r = (color >>  0) & 0xFF;
+	int32_t g = (color >>  8) & 0xFF;
+	int32_t b = (color >> 16) & 0xFF;
+
+	r += dither_offset;
+	g += dither_offset;
+	b += dither_offset;
+
+	if (r < 0) r = 0;
+	if (g < 0) g = 0;
+	if (b < 0) b = 0;
+	if (r > 255) r = 255;
+	if (g > 255) g = 255;
+	if (b > 255) b = 255;
+
+	return ((uint32_t)b << 16) | ((uint32_t)g << 8) | (uint32_t)r;
+}
+
 void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
 		   bool semitrans, Vertex v0, Vertex v1, Vertex v2) {
 	// Computes the area of the triangle times 2 (used for shading)
@@ -368,10 +400,10 @@ void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
 	}
 
 	// Compute the bounding box of the triangle
-	int min_x = find_min(v0.x, v1.x, v2.x);
-	int min_y = find_min(v0.y, v1.y, v2.y);
-	int max_x = find_max(v0.x, v1.x, v2.x);
-	int max_y = find_max(v0.y, v1.y, v2.y);
+	int16_t min_x = find_min(v0.x, v1.x, v2.x);
+	int16_t min_y = find_min(v0.y, v1.y, v2.y);
+	int16_t max_x = find_max(v0.x, v1.x, v2.x);
+	int16_t max_y = find_max(v0.y, v1.y, v2.y);
 
 	// Clamp to the dimensions of the canvas
 	if (min_x < gpu.drawing_area_beg.x) min_x = gpu.drawing_area_beg.x;
@@ -418,12 +450,12 @@ void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
 
 	bool reached_triangle = false;
 
-	for (int y = min_y; y <= max_y; y++) {
+	for (int16_t y = min_y; y <= max_y; y++) {
 		int w0 = w0_start;
 		int w1 = w1_start;
 		int w2 = w2_start;
 		uint16_t *pixel = pixel_start;
-		for (int x = min_x; x <= max_x; x++) {
+		for (int16_t x = min_x; x <= max_x; x++) {
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
@@ -431,6 +463,10 @@ void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
 				float a1 = (float)w2 / (float)double_area;
 				float a2 = (float)w0 / (float)double_area;
 				uint32_t c = blend_triangle32(c0, c1, c2, a0, a1, a2);
+				if (gpu.dithering_enabled) {
+					c = apply_dither32(x, y, c);
+				}
+
 				if (semitrans) {
 					*pixel = blend_average16(color32to16(c), *pixel);
 				} else {

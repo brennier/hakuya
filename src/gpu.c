@@ -7,30 +7,37 @@
 #define VRAM_HEIGHT 512
 
 enum GPUCommand {
-	RESET = 0x00,
-	POLY_MONO_OPAQUE      = 0x20,
-	POLY_MONO_SEMITRANS   = 0x22,
-	QUAD_MONO_OPAQUE      = 0x28,
-	QUAD_MONO_SEMITRANS   = 0x2A,
-	POLY_SHADED_OPAQUE    = 0x30,
-	POLY_SHADED_SEMITRANS = 0x32,
-	QUAD_SHADED_OPAQUE    = 0x38,
-	QUAD_SHADED_SEMITRANS = 0x3A,
-	RECT_MONO_OPAQUE      = 0x60,
-	RECT_MONO_SEMITRANS   = 0x62,
-	DOT_MONO_OPAQUE       = 0x68,
-	DOT_MONO_SEMITRANS    = 0x6A,
-	RECT8_MONO_OPAQUE     = 0x70,
-	RECT8_MONO_SEMITRANS  = 0x72,
-	RECT16_MONO_OPAQUE    = 0x78,
-	RECT16_MONO_SEMITRANS = 0x7A,
-	SET_DRAWING_SETTINGS  = 0xE1,
-	SET_DRAWING_AREA_BEG  = 0xE3,
-	SET_DRAWING_AREA_END  = 0xE4,
+	RESET                 = 0x00, // 0000 0000
+	FILL_RECTANGLE        = 0x02, // 0000 0010
+
+	POLY_MONO_OPAQUE      = 0x20, // 0010 0000
+	POLY_MONO_SEMITRANS   = 0x22, // 0010 0010
+	QUAD_MONO_OPAQUE      = 0x28, // 0010 1000
+	QUAD_MONO_SEMITRANS   = 0x2A, // 0010 1010
+	POLY_SHADED_OPAQUE    = 0x30, // 0011 0000
+	POLY_SHADED_SEMITRANS = 0x32, // 0011 0010
+	QUAD_SHADED_OPAQUE    = 0x38, // 0011 1000
+	QUAD_SHADED_SEMITRANS = 0x3A, // 0011 1010
+
+	RECT_MONO_OPAQUE      = 0x60, // 0110 0000
+	RECT_MONO_SEMITRANS   = 0x62, // 0110 0010
+	DOT_MONO_OPAQUE       = 0x68, // 0110 1000
+	DOT_MONO_SEMITRANS    = 0x6A, // 0110 1010
+	RECT8_MONO_OPAQUE     = 0x70, // 0111 0000
+	RECT8_MONO_SEMITRANS  = 0x72, // 0111 0010
+	RECT16_MONO_OPAQUE    = 0x78, // 0111 1000
+	RECT16_MONO_SEMITRANS = 0x7A, // 0111 1010
+
+	VRAM_TO_VRAM_COPY     = 0x80, // 1000 0000
+	CPU_TO_VRAM_COPY      = 0xA0, // 1010 0000
+	SET_DRAWING_SETTINGS  = 0xE1, // 1110 0001
+	SET_DRAWING_AREA_BEG  = 0xE3, // 1110 0011
+	SET_DRAWING_AREA_END  = 0xE4, // 1110 0100
 };
 
 static uint8_t gpu_command_length[0xFF] = {
 	[RESET]                 = 1,
+	[FILL_RECTANGLE]        = 3,
 	[POLY_MONO_OPAQUE]      = 4,
 	[POLY_MONO_SEMITRANS]   = 4,
 	[QUAD_MONO_OPAQUE]      = 5,
@@ -47,6 +54,8 @@ static uint8_t gpu_command_length[0xFF] = {
 	[RECT8_MONO_SEMITRANS]  = 2,
 	[RECT16_MONO_OPAQUE]    = 2,
 	[RECT16_MONO_SEMITRANS] = 2,
+	[VRAM_TO_VRAM_COPY]     = 4,
+	[CPU_TO_VRAM_COPY]      = 3,
 	[SET_DRAWING_SETTINGS]  = 1,
 	[SET_DRAWING_AREA_BEG]  = 1,
 	[SET_DRAWING_AREA_END]  = 1,
@@ -71,6 +80,11 @@ struct HakuyaGPU {
 	Vertex drawing_area_beg;
 	Vertex drawing_area_end;
 	bool dithering_enabled;
+
+	bool cpu_to_vram_copy_mode;
+	Vertex copy_current;
+	Vertex copy_start;
+	Vertex copy_end;
 
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
@@ -207,24 +221,69 @@ static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
 }
 
 static void gpu_execute_command(void) {
+	bool semitrans = gpu.word_buffer[0] & (1u << 25);
 	switch (gpu.command) {
 	case RESET: break;
-	case POLY_MONO_OPAQUE:      gpu_draw_poly_mono(false);     break;
-	case POLY_MONO_SEMITRANS:   gpu_draw_poly_mono(true);      break;
-	case QUAD_MONO_OPAQUE:      gpu_draw_quad_mono(false);     break;
-	case QUAD_MONO_SEMITRANS:   gpu_draw_quad_mono(true);      break;
-	case POLY_SHADED_OPAQUE:    gpu_draw_poly_shaded(false);   break;
-	case POLY_SHADED_SEMITRANS: gpu_draw_poly_shaded(true);    break;
-	case QUAD_SHADED_OPAQUE:    gpu_draw_quad_shaded(false);   break;
-	case QUAD_SHADED_SEMITRANS: gpu_draw_quad_shaded(true);    break;
-	case RECT_MONO_OPAQUE:      gpu_draw_rect_mono(0, false);  break;
-	case RECT_MONO_SEMITRANS:   gpu_draw_rect_mono(0, true);   break;
-	case DOT_MONO_OPAQUE:       gpu_draw_rect_mono(1, false);  break;
-	case DOT_MONO_SEMITRANS:    gpu_draw_rect_mono(1, true);   break;
-	case RECT8_MONO_OPAQUE:     gpu_draw_rect_mono(8, false);  break;
-	case RECT8_MONO_SEMITRANS:  gpu_draw_rect_mono(8, true);   break;
-	case RECT16_MONO_OPAQUE:    gpu_draw_rect_mono(16, false); break;
-	case RECT16_MONO_SEMITRANS: gpu_draw_rect_mono(16, true);  break;
+	case FILL_RECTANGLE: {
+		uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
+		Vertex pos  = read_vertex(gpu.word_buffer[1]);
+		pos.x &= 0x03F0;
+		Vertex size = read_vertex(gpu.word_buffer[2]);
+		size.x += 0x0F;
+		size.x &= ~0x0F;
+		Vertex end = (Vertex){ .x = pos.x + size.x, .y = pos.y + size.y };
+
+		uint16_t color16 = color32to16(color);
+		for (int y = pos.y; y < end.y; y++)
+		for (int x = pos.x; x < end.x; x++)
+			gpu.vram[y][x] = color16;
+		break;
+	}
+	case POLY_MONO_OPAQUE: case POLY_MONO_SEMITRANS:
+		gpu_draw_poly_mono(semitrans);
+		break;
+	case QUAD_MONO_OPAQUE: case QUAD_MONO_SEMITRANS:
+		gpu_draw_quad_mono(semitrans);
+		break;
+	case POLY_SHADED_OPAQUE: case POLY_SHADED_SEMITRANS:
+		gpu_draw_poly_shaded(semitrans);
+		break;
+	case QUAD_SHADED_OPAQUE: case QUAD_SHADED_SEMITRANS:
+		gpu_draw_quad_shaded(semitrans);
+		break;
+	case RECT_MONO_OPAQUE: case RECT_MONO_SEMITRANS:
+		gpu_draw_rect_mono(0, semitrans);
+		break;
+	case DOT_MONO_OPAQUE: case DOT_MONO_SEMITRANS:
+		gpu_draw_rect_mono(1, semitrans);
+		break;
+	case RECT8_MONO_OPAQUE: case RECT8_MONO_SEMITRANS:
+		gpu_draw_rect_mono(8, semitrans);
+		break;
+	case RECT16_MONO_OPAQUE: case RECT16_MONO_SEMITRANS:
+		gpu_draw_rect_mono(16, semitrans);
+		break;
+	case VRAM_TO_VRAM_COPY: {
+		Vertex src  = read_vertex(gpu.word_buffer[1]);
+		Vertex dest = read_vertex(gpu.word_buffer[2]);
+		Vertex size = read_vertex(gpu.word_buffer[3]);
+		if (size.x == 0) size.x = 0x400;
+		if (size.y == 0) size.y = 0x200;
+		for (int y = 0; y < size.y; y++)
+			for (int x = 0; x < size.x; x++) {
+				gpu.vram[dest.y + y][dest.x + x] = gpu.vram[src.y + y][src.x + x];
+			}
+		break;
+	}
+	case CPU_TO_VRAM_COPY:
+		gpu.cpu_to_vram_copy_mode = true;
+		gpu.copy_start   = read_vertex(gpu.word_buffer[1]);
+		gpu.copy_current = gpu.copy_start;
+		Vertex size      = read_vertex(gpu.word_buffer[2]);
+		if (size.x == 0) size.x = 0x400;
+		if (size.y == 0) size.y = 0x200;
+		gpu.copy_end = (Vertex){ gpu.copy_start.x + size.x, gpu.copy_start.y + size.y };
+		break;
 	case SET_DRAWING_SETTINGS:
 		gpu.dithering_enabled = (gpu.word_buffer[0]) & (1u << 9);
 		break;
@@ -275,6 +334,32 @@ void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
 			break;
 		default:
 			fprintf(stderr, "[INFO] Unimplemented GPU1 write with value %08X\n", value);
+		}
+		return;
+	}
+
+	if (gpu.cpu_to_vram_copy_mode) {
+		uint16_t color0 = (uint16_t)(value & 0xFFFF);
+		uint16_t color1 = (uint16_t)(value >> 16);
+		gpu.vram[gpu.copy_current.y][gpu.copy_current.x] = color0;
+		gpu.copy_current.x++;
+		if (gpu.copy_current.x == gpu.copy_end.x) {
+			gpu.copy_current.x = gpu.copy_start.x;
+			gpu.copy_current.y++;
+		}
+		if (gpu.copy_current.y == gpu.copy_end.y) {
+			gpu.cpu_to_vram_copy_mode = false;
+			return;
+		}
+		gpu.vram[gpu.copy_current.y][gpu.copy_current.x] = color1;
+		gpu.copy_current.x++;
+		if (gpu.copy_current.x == gpu.copy_end.x) {
+			gpu.copy_current.x = gpu.copy_start.x;
+			gpu.copy_current.y++;
+		}
+		if (gpu.copy_current.y == gpu.copy_end.y) {
+			gpu.cpu_to_vram_copy_mode = false;
+			return;
 		}
 		return;
 	}

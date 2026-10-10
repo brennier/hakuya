@@ -24,6 +24,8 @@ enum GPUCommand {
 	RECT8_MONO_SEMITRANS  = 0x72,
 	RECT16_MONO_OPAQUE    = 0x78,
 	RECT16_MONO_SEMITRANS = 0x7A,
+	SET_DRAWING_AREA_BEG  = 0xE3,
+	SET_DRAWING_AREA_END  = 0xE4,
 };
 
 static uint8_t gpu_command_length[0xFF] = {
@@ -44,6 +46,8 @@ static uint8_t gpu_command_length[0xFF] = {
 	[RECT8_MONO_SEMITRANS]  = 2,
 	[RECT16_MONO_OPAQUE]    = 2,
 	[RECT16_MONO_SEMITRANS] = 2,
+	[SET_DRAWING_AREA_BEG]  = 1,
+	[SET_DRAWING_AREA_END]  = 1,
 };
 
 typedef struct {
@@ -62,6 +66,8 @@ struct HakuyaGPU {
 	uint8_t  current_word;
 	uint8_t  remaining_words;
 	Rectangle display_area;
+	Vertex drawing_area_beg;
+	Vertex drawing_area_end;
 
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
@@ -216,6 +222,18 @@ static void gpu_execute_command(void) {
 	case RECT8_MONO_SEMITRANS:  gpu_draw_rect_mono(8, true);   break;
 	case RECT16_MONO_OPAQUE:    gpu_draw_rect_mono(16, false); break;
 	case RECT16_MONO_SEMITRANS: gpu_draw_rect_mono(16, true);  break;
+	case SET_DRAWING_AREA_BEG:
+		gpu.drawing_area_beg = (Vertex){
+			.x = (gpu.word_buffer[0] >>  0) & 0x3FF,
+			.y = (gpu.word_buffer[0] >> 10) & 0x1FF,
+		};
+		break;
+	case SET_DRAWING_AREA_END:
+		gpu.drawing_area_end = (Vertex){
+			.x = (gpu.word_buffer[0] >>  0) & 0x3FF,
+			.y = (gpu.word_buffer[0] >> 10) & 0x1FF,
+		};
+		break;
 	}
 }
 
@@ -308,15 +326,24 @@ static inline bool is_top_or_left(Vertex v1, Vertex v2) {
 }
 
 void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size) {
+	// Clamp to the dimensions of the canvas
+	Vertex end = (Vertex){ .x = pos.x + size.x, .y = pos.y + size.y };
+
+	// Clamp to the dimensions of the canvas
+	if (pos.x < gpu.drawing_area_beg.x) pos.x = gpu.drawing_area_beg.x;
+	if (pos.y < gpu.drawing_area_beg.y) pos.y = gpu.drawing_area_beg.y;
+	if (end.x > gpu.drawing_area_end.x) end.x = gpu.drawing_area_end.x;
+	if (end.y > gpu.drawing_area_end.y) end.y = gpu.drawing_area_end.y;
+
 	if (semitrans) {
-		for (int y = pos.y; y < pos.y + size.y; y++)
-		for (int x = pos.x; x < pos.x + size.x; x++) {
+		for (int y = pos.y; y < end.y; y++)
+		for (int x = pos.x; x < end.x; x++) {
 			uint16_t *pixel = &gpu.vram[y][x];
 			*pixel = blend_average16(color32to16(color), *pixel);
 		}
 	} else {
-		for (int y = pos.y; y < pos.y + size.y; y++)
-		for (int x = pos.x; x < pos.x + size.x; x++)
+		for (int y = pos.y; y < end.y; y++)
+		for (int x = pos.x; x < end.x; x++)
 			gpu.vram[y][x] = color32to16(color);
 	}
 }
@@ -347,10 +374,10 @@ void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
 	int max_y = find_max(v0.y, v1.y, v2.y);
 
 	// Clamp to the dimensions of the canvas
-	if (min_x < 0) min_x = 0;
-	if (min_y < 0) min_y = 0;
-	if (max_x >= VRAM_WIDTH)  max_x = VRAM_WIDTH  - 1;
-	if (max_y >= VRAM_HEIGHT) max_y = VRAM_HEIGHT - 1;
+	if (min_x < gpu.drawing_area_beg.x) min_x = gpu.drawing_area_beg.x;
+	if (min_y < gpu.drawing_area_beg.y) min_y = gpu.drawing_area_beg.y;
+	if (max_x > gpu.drawing_area_end.x) max_x = gpu.drawing_area_end.x;
+	if (max_y > gpu.drawing_area_end.y) max_y = gpu.drawing_area_end.y;
 
 	Vertex xy_start = {
 		.x = (int16_t)min_x,

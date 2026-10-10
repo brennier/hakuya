@@ -66,25 +66,25 @@ struct HakuyaGPU {
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
 
-static inline uint16_t blend_triangle16(uint16_t c1, uint16_t c2, uint16_t c3,
+static inline uint32_t blend_triangle32(uint32_t c1, uint32_t c2, uint32_t c3,
 					float a1, float a2, float a3) {
-	uint8_t c1r = (c1 >>  0) & 0x1F;
-	uint8_t c1g = (c1 >>  5) & 0x1F;
-	uint8_t c1b = (c1 >> 10) & 0x1F;
+	uint8_t c1r = (c1 >>  0) & 0xFF;
+	uint8_t c1g = (c1 >>  8) & 0xFF;
+	uint8_t c1b = (c1 >> 16) & 0xFF;
 
-	uint8_t c2r = (c2 >>  0) & 0x1F;
-	uint8_t c2g = (c2 >>  5) & 0x1F;
-	uint8_t c2b = (c2 >> 10) & 0x1F;
+	uint8_t c2r = (c2 >>  0) & 0xFF;
+	uint8_t c2g = (c2 >>  8) & 0xFF;
+	uint8_t c2b = (c2 >> 16) & 0xFF;
 
-	uint8_t c3r = (c3 >>  0) & 0x1F;
-	uint8_t c3g = (c3 >>  5) & 0x1F;
-	uint8_t c3b = (c3 >> 10) & 0x1F;
+	uint8_t c3r = (c3 >>  0) & 0xFF;
+	uint8_t c3g = (c3 >>  8) & 0xFF;
+	uint8_t c3b = (c3 >> 16) & 0xFF;
 
 	uint8_t r = (uint8_t)(c1r * a1 + c2r * a2 + c3r * a3);
 	uint8_t g = (uint8_t)(c1g * a1 + c2g * a2 + c3g * a3);
 	uint8_t b = (uint8_t)(c1b * a1 + c2b * a2 + c3b * a3);
 
-	return (uint16_t)((b << 10) | (g << 5) | r);
+	return (uint32_t)((b << 16) | (g << 8) | r);
 }
 
 // This does floor((a+b)/2)
@@ -143,11 +143,11 @@ static inline Vertex read_vertex(uint32_t word) {
 	};
 }
 
-void draw_triangle(uint16_t c1, uint16_t c2, uint16_t c3, bool semitrans, Vertex v0, Vertex v1, Vertex v2);
-void draw_monochrome_rectangle(uint16_t color, bool semitrans, Vertex pos, Vertex size);
+void draw_triangle(uint32_t c1, uint32_t c2, uint32_t c3, bool semitrans, Vertex v0, Vertex v1, Vertex v2);
+void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size);
 
 static void gpu_draw_poly_mono(bool semitrans) {
-	uint16_t color = color32to16(gpu.word_buffer[0]);
+	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
@@ -155,17 +155,17 @@ static void gpu_draw_poly_mono(bool semitrans) {
 }
 
 static void gpu_draw_poly_shaded(bool semitrans) {
-	uint16_t c1 = color32to16(gpu.word_buffer[0]);
+	uint32_t c1 = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex   v1 = read_vertex(gpu.word_buffer[1]);
-	uint16_t c2 = color32to16(gpu.word_buffer[2]);
+	uint32_t c2 = gpu.word_buffer[2] & 0x00FFFFFF;
 	Vertex   v2 = read_vertex(gpu.word_buffer[3]);
-	uint16_t c3 = color32to16(gpu.word_buffer[4]);
+	uint32_t c3 = gpu.word_buffer[4] & 0x00FFFFFF;
 	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
 	draw_triangle(c1, c2, c3, semitrans, v1, v2, v3);
 }
 
 static void gpu_draw_quad_mono(bool semitrans) {
-	uint16_t color = color32to16(gpu.word_buffer[0]);
+	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
@@ -175,20 +175,20 @@ static void gpu_draw_quad_mono(bool semitrans) {
 }
 
 static void gpu_draw_quad_shaded(bool semitrans) {
-	uint16_t c1 = color32to16(gpu.word_buffer[0]);
+	uint32_t c1 = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex   v1 = read_vertex(gpu.word_buffer[1]);
-	uint16_t c2 = color32to16(gpu.word_buffer[2]);
+	uint32_t c2 = gpu.word_buffer[2] & 0x00FFFFFF;
 	Vertex   v2 = read_vertex(gpu.word_buffer[3]);
-	uint16_t c3 = color32to16(gpu.word_buffer[4]);
+	uint32_t c3 = gpu.word_buffer[4] & 0x00FFFFFF;
 	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
-	uint16_t c4 = color32to16(gpu.word_buffer[6]);
+	uint32_t c4 = gpu.word_buffer[6] & 0x00FFFFFF;
 	Vertex   v4 = read_vertex(gpu.word_buffer[7]);
 	draw_triangle(c1, c2, c3, semitrans, v1, v2, v3);
 	draw_triangle(c2, c3, c4, semitrans, v2, v3, v4);
 }
 
 static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
-	uint16_t color = color32to16(gpu.word_buffer[0]);
+	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex pos = read_vertex(gpu.word_buffer[1]);
 	Vertex size = (Vertex){ .x = fixed_size, .y = fixed_size };
 	if (fixed_size == 0) {
@@ -307,21 +307,21 @@ static inline bool is_top_or_left(Vertex v1, Vertex v2) {
 	return (sub.y < 0) || (sub.y == 0 && sub.x > 0);
 }
 
-void draw_monochrome_rectangle(uint16_t color, bool semitrans, Vertex pos, Vertex size) {
+void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size) {
 	if (semitrans) {
 		for (int y = pos.y; y < pos.y + size.y; y++)
 		for (int x = pos.x; x < pos.x + size.x; x++) {
 			uint16_t *pixel = &gpu.vram[y][x];
-			*pixel = blend_average16(color, *pixel);
+			*pixel = blend_average16(color32to16(color), *pixel);
 		}
 	} else {
 		for (int y = pos.y; y < pos.y + size.y; y++)
 		for (int x = pos.x; x < pos.x + size.x; x++)
-			gpu.vram[y][x] = color;
+			gpu.vram[y][x] = color32to16(color);
 	}
 }
 
-void draw_triangle(uint16_t c0, uint16_t c1, uint16_t c2,
+void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
 		   bool semitrans, Vertex v0, Vertex v1, Vertex v2) {
 	// Computes the area of the triangle times 2 (used for shading)
 	int double_area = vec2_cross(
@@ -334,7 +334,7 @@ void draw_triangle(uint16_t c0, uint16_t c1, uint16_t c2,
 		Vertex v_temp = v0;
 		v0 = v1;
 		v1 = v_temp;
-		uint16_t c_temp = c0;
+		uint32_t c_temp = c0;
 		c0 = c1;
 		c1 = c_temp;
 		double_area *= -1;
@@ -403,11 +403,11 @@ void draw_triangle(uint16_t c0, uint16_t c1, uint16_t c2,
 				float a0 = (float)w1 / (float)double_area;
 				float a1 = (float)w2 / (float)double_area;
 				float a2 = (float)w0 / (float)double_area;
-				uint16_t c = blend_triangle16(c0, c1, c2, a0, a1, a2);
+				uint32_t c = blend_triangle32(c0, c1, c2, a0, a1, a2);
 				if (semitrans) {
-					*pixel = blend_average16(c, *pixel);
+					*pixel = blend_average16(color32to16(c), *pixel);
 				} else {
-					*pixel = c;
+					*pixel = color32to16(c);
 				}
 			} else if (reached_triangle) {
 				break;

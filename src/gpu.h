@@ -8,5 +8,6 @@ void gpu_write(uint32_t address, uint32_t value, int bytes);
 
 void gpu_render_vram_u16(uint16_t *output_buffer);
 void gpu_render_vram_u32(uint32_t *output_buffer);
+void gpu_get_display_area(int *x, int *y, int *width, int *height);
 
 #endif // HAGKUYA_GPU_H

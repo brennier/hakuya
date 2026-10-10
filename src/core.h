@@ -15,5 +15,6 @@ void hakuya_start_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_len
 
 void hakuya_render_vram_u16(struct HakuyaCore *core, uint16_t *output_buffer);
 void hakuya_render_vram_u32(struct HakuyaCore *core, uint32_t *output_buffer);
+void hakuya_get_display_area(int *x, int *y, int *width, int *height);
 
 #endif // HAGKUYA_CORE_H

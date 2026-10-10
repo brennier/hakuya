@@ -69,3 +69,7 @@ void hakuya_render_vram_u32(struct HakuyaCore *core, uint32_t *output_buffer) {
 	(void)core;
 	gpu_render_vram_u32(output_buffer);
 }
+
+void hakuya_get_display_area(int *x, int *y, int *width, int *height) {
+	gpu_get_display_area(x, y, width, height);
+}

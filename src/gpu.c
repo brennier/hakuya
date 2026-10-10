@@ -51,11 +51,17 @@ typedef struct {
 	int16_t y;
 } Vertex;
 
+typedef struct {
+	Vertex pos;
+	Vertex size;
+} Rectangle;
+
 struct HakuyaGPU {
 	enum GPUCommand command;
 	uint32_t word_buffer[12];
 	uint8_t  current_word;
 	uint8_t  remaining_words;
+	Rectangle display_area;
 
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
@@ -121,6 +127,13 @@ void gpu_render_vram_u16(uint16_t *output_buffer) {
 	uint16_t *flat_vram = (uint16_t*)gpu.vram;
 	for (int i = 0; i < VRAM_WIDTH * VRAM_HEIGHT; i++)
 		output_buffer[i] = flat_vram[i];
+}
+
+void gpu_get_display_area(int *x, int *y, int *width, int *height) {
+	*x = gpu.display_area.pos.x;
+	*y = gpu.display_area.pos.y;
+	*width  = gpu.display_area.size.x;
+	*height = gpu.display_area.size.y;
 }
 
 static inline Vertex read_vertex(uint32_t word) {
@@ -217,6 +230,28 @@ uint32_t gpu_read(uint32_t address, int bytes) {
 void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
 	(void)bytes;
 	if (rel_address == 4) {
+		switch (value >> 24) {
+		case 0x05:
+			gpu.display_area.pos.x = (value >>  0) & 0x3FF;
+			gpu.display_area.pos.y = (value >> 10) & 0x1FF;
+			break;
+		case 0x08:
+			if (value & 0x40) {
+				gpu.display_area.size.x = 368;
+			} else {
+				static const int16_t widths[4] = { 256, 320, 512, 640 };
+				gpu.display_area.size.x = widths[value & 0x03];
+			}
+
+			if (value & 0x04) {
+				gpu.display_area.size.y = 480;
+			} else {
+				gpu.display_area.size.y = 240;
+			}
+			break;
+		default:
+			fprintf(stderr, "[INFO] Unimplemented GPU1 write with value %08X\n", value);
+		}
 		return;
 	}
 

@@ -8,8 +8,11 @@
 #define EXE_FILE  "./exe/psxtest_cpu.exe"
 
 #define WINDOW_TITLE "Hakuya PSX Emulator"
-#define WINDOW_WIDTH  1024
-#define WINDOW_HEIGHT 512
+#define SCALE_FACTOR 2
+#define WINDOW_WIDTH  (640 * SCALE_FACTOR)
+#define WINDOW_HEIGHT (480 * SCALE_FACTOR)
+#define VRAM_WIDTH  1024
+#define VRAM_HEIGHT 512
 #define APP_VERSION "0.1"
 
 // Approximately 33 MHz
@@ -54,11 +57,12 @@ static bool hakuya_setup(struct HakuyaApp *app) {
 	app->screen_texture = SDL_CreateTexture(app->renderer,
 						SDL_PIXELFORMAT_XBGR1555,
 						SDL_TEXTUREACCESS_STREAMING,
-						WINDOW_WIDTH, WINDOW_HEIGHT);
+						VRAM_WIDTH, VRAM_HEIGHT);
 	if (!app->screen_texture) {
 		fprintf(stderr, "Error creating screen texture: %s\n", SDL_GetError());
 		return false;
 	}
+	SDL_SetTextureScaleMode(app->screen_texture, SDL_SCALEMODE_NEAREST);
 
 	app->core = hakuya_core_create();
 	return true;
@@ -115,7 +119,7 @@ int main(int argc, char *argv[]) {
 		hakuya_start_exe(app.core, app.exe_data, app.exe_length);
 	}
 
-	uint16_t frame[512][1024];
+	uint16_t frame[VRAM_HEIGHT][VRAM_WIDTH];
 	bool running = true;
 	while (running) {
 		while (SDL_PollEvent(&app.event)) {
@@ -129,8 +133,11 @@ int main(int argc, char *argv[]) {
 		}
 
 		hakuya_render_vram_u16(app.core, (uint16_t*)frame);
-		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint16_t) * 1024);
-		SDL_RenderTexture(app.renderer, app.screen_texture, NULL, NULL);
+		int x, y, width, height;
+		hakuya_get_display_area(&x, &y, &width, &height);
+		const SDL_FRect source_rectangle = { x, y, width, height };
+		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint16_t) * VRAM_WIDTH);
+		SDL_RenderTexture(app.renderer, app.screen_texture, &source_rectangle, NULL);
 		SDL_RenderPresent(app.renderer);
 	}
 

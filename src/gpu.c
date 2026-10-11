@@ -71,6 +71,15 @@ typedef struct {
 	Vertex size;
 } Rectangle;
 
+typedef struct {
+	Vertex v0;
+	Vertex v1;
+	Vertex v2;
+	uint32_t c0;
+	uint32_t c1;
+	uint32_t c2;
+} Triangle;
+
 struct HakuyaGPU {
 	enum GPUCommand command;
 	uint32_t word_buffer[12];
@@ -166,15 +175,16 @@ static inline Vertex read_vertex(uint32_t word) {
 	};
 }
 
-void draw_triangle(uint32_t c1, uint32_t c2, uint32_t c3, bool semitrans, Vertex v0, Vertex v1, Vertex v2);
 void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size);
+static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans);
 
 static void gpu_draw_poly_mono(bool semitrans) {
 	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex v1 = read_vertex(gpu.word_buffer[1]);
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
-	draw_triangle(color, color, color, semitrans, v1, v2, v3);
+	Triangle triangle = (Triangle){ v1, v2, v3, color, color, color };
+	draw_triangle(triangle, false, semitrans);
 }
 
 static void gpu_draw_poly_shaded(bool semitrans) {
@@ -184,7 +194,8 @@ static void gpu_draw_poly_shaded(bool semitrans) {
 	Vertex   v2 = read_vertex(gpu.word_buffer[3]);
 	uint32_t c3 = gpu.word_buffer[4] & 0x00FFFFFF;
 	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
-	draw_triangle(c1, c2, c3, semitrans, v1, v2, v3);
+	Triangle triangle = (Triangle){ v1, v2, v3, c1, c2, c3 };
+	draw_triangle(triangle, true, semitrans);
 }
 
 static void gpu_draw_quad_mono(bool semitrans) {
@@ -193,8 +204,10 @@ static void gpu_draw_quad_mono(bool semitrans) {
 	Vertex v2 = read_vertex(gpu.word_buffer[2]);
 	Vertex v3 = read_vertex(gpu.word_buffer[3]);
 	Vertex v4 = read_vertex(gpu.word_buffer[4]);
-	draw_triangle(color, color, color, semitrans, v1, v2, v3);
-	draw_triangle(color, color, color, semitrans, v2, v3, v4);
+	Triangle triangle1 = (Triangle){ v1, v2, v3, color, color, color };
+	Triangle triangle2 = (Triangle){ v2, v3, v4, color, color, color };
+	draw_triangle(triangle1, false, semitrans);
+	draw_triangle(triangle2, false, semitrans);
 }
 
 static void gpu_draw_quad_shaded(bool semitrans) {
@@ -206,8 +219,10 @@ static void gpu_draw_quad_shaded(bool semitrans) {
 	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
 	uint32_t c4 = gpu.word_buffer[6] & 0x00FFFFFF;
 	Vertex   v4 = read_vertex(gpu.word_buffer[7]);
-	draw_triangle(c1, c2, c3, semitrans, v1, v2, v3);
-	draw_triangle(c2, c3, c4, semitrans, v2, v3, v4);
+	Triangle triangle1 = (Triangle){ v1, v2, v3, c1, c2, c3 };
+	Triangle triangle2 = (Triangle){ v2, v3, v4, c2, c3, c4 };
+	draw_triangle(triangle1, true, semitrans);
+	draw_triangle(triangle2, true, semitrans);
 }
 
 static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
@@ -465,8 +480,14 @@ static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
 	return ((uint32_t)b << 16) | ((uint32_t)g << 8) | (uint32_t)r;
 }
 
-void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
-		   bool semitrans, Vertex v0, Vertex v1, Vertex v2) {
+static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans) {
+	Vertex v0 = triangle.v0;
+	Vertex v1 = triangle.v1;
+	Vertex v2 = triangle.v2;
+	uint32_t c0 = triangle.c0;
+	uint32_t c1 = triangle.c1;
+	uint32_t c2 = triangle.c2;
+
 	// Computes the area of the triangle times 2 (used for shading)
 	int double_area = vec2_cross(
 		vec2_sub(v1, v0),
@@ -544,12 +565,17 @@ void draw_triangle(uint32_t c0, uint32_t c1, uint32_t c2,
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
-				float a0 = (float)w1 / (float)double_area;
-				float a1 = (float)w2 / (float)double_area;
-				float a2 = (float)w0 / (float)double_area;
-				uint32_t c = blend_triangle32(c0, c1, c2, a0, a1, a2);
-				if (gpu.dithering_enabled) {
-					c = apply_dither32(x, y, c);
+				uint32_t c;
+
+				if (shaded) {
+					float a0 = (float)w1 / (float)double_area;
+					float a1 = (float)w2 / (float)double_area;
+					float a2 = (float)w0 / (float)double_area;
+					c = blend_triangle32(c0, c1, c2, a0, a1, a2);
+					if (gpu.dithering_enabled)
+						c = apply_dither32(x, y, c);
+				} else {
+					c = c0;
 				}
 
 				if (semitrans) {

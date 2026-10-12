@@ -53,23 +53,43 @@ static inline void dma_trigger_gpu(void) {
 	uint32_t address = dma.gpu.start & 0x00FFFFFCu;
 	uint32_t sync_mode = (dma.gpu.channel_control >> 9) & 0x03;
 	printf("DMA GPU triggered: start %08X mode %08X\n", address, sync_mode);
-	if (sync_mode != 2) {
-		printf("Implement mode %d for GPU DMA!", sync_mode);
-		return;
-	}
-	while (true) {
-		uint32_t header = bus_read32(address);
-		uint32_t word_count = header >> 24;
-		for (int i = 0; i < word_count; i++) {
-			uint32_t data = bus_read32(address + 4*(i+1));
-			printf("Sending %08X\n", data);
+	switch (sync_mode) {
+	case 0: {
+		uint32_t word_count = dma.gpu.block_control & 0xFFFFu;
+		for (uint32_t i = 0; i < word_count; i++) {
+			uint32_t data = bus_read32(address + 4*i);
 			bus_write32(GPU0_ADDRESS, data);
 		}
-
-		address = header & 0x00FFFFFF;
-		if (address & (1u << 23)) {
-			break;
+		return;
+	}
+	case 1: {
+		uint32_t block_size  = dma.gpu.block_control & 0xFFFFu;
+		uint32_t block_count = dma.gpu.block_control >> 16;
+		for (uint32_t i = 0; i < block_size * block_count; i++) {
+			uint32_t data = bus_read32(address + 4*i);
+			bus_write32(GPU0_ADDRESS, data);
 		}
+		return;
+	}
+	case 2: {
+		while (true) {
+			uint32_t header = bus_read32(address);
+			uint32_t word_count = header >> 24;
+			for (uint32_t i = 0; i < word_count; i++) {
+				uint32_t data = bus_read32(address + 4*(i+1));
+				printf("Sending %08X\n", data);
+				bus_write32(GPU0_ADDRESS, data);
+			}
+			address = header & 0x00FFFFFF;
+			if (address & (1u << 23)) {
+				break;
+			}
+		}
+		return;
+	}
+	case 3:
+		fprintf(stderr, "Unknown sync mode %d!\n", sync_mode);
+		return;
 	}
 }
 

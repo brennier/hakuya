@@ -14,6 +14,7 @@ enum GPUCommand {
 	POLY_MONO_SEMITRANS   = 0x22, // 0010 0010
 	QUAD_MONO_OPAQUE      = 0x28, // 0010 1000
 	QUAD_MONO_SEMITRANS   = 0x2A, // 0010 1010
+	QUAD_TEXTURED_OPAQUE_BLENDED = 0x2C, // 0010 1100
 	POLY_SHADED_OPAQUE    = 0x30, // 0011 0000
 	POLY_SHADED_SEMITRANS = 0x32, // 0011 0010
 	QUAD_SHADED_OPAQUE    = 0x38, // 0011 1000
@@ -35,13 +36,14 @@ enum GPUCommand {
 	SET_DRAWING_AREA_END  = 0xE4, // 1110 0100
 };
 
-static uint8_t gpu_command_length[0xFF] = {
+static uint8_t gpu_command_length[0x100] = {
 	[RESET]                 = 1,
 	[FILL_RECTANGLE]        = 3,
 	[POLY_MONO_OPAQUE]      = 4,
 	[POLY_MONO_SEMITRANS]   = 4,
 	[QUAD_MONO_OPAQUE]      = 5,
 	[QUAD_MONO_SEMITRANS]   = 5,
+	[QUAD_TEXTURED_OPAQUE_BLENDED] = 9,
 	[POLY_SHADED_OPAQUE]    = 6,
 	[POLY_SHADED_SEMITRANS] = 6,
 	[QUAD_SHADED_OPAQUE]    = 8,
@@ -225,6 +227,18 @@ static void gpu_draw_quad_shaded(bool semitrans) {
 	draw_triangle(triangle2, true, semitrans);
 }
 
+static void gpu_draw_quad_textured_blended(bool semitrans) {
+	uint32_t c  = gpu.word_buffer[0] & 0x00FFFFFF;
+	Vertex   v1 = read_vertex(gpu.word_buffer[1]);
+	Vertex   v2 = read_vertex(gpu.word_buffer[3]);
+	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
+	Vertex   v4 = read_vertex(gpu.word_buffer[7]);
+	Triangle triangle1 = (Triangle){ v1, v2, v3, c, c, c };
+	Triangle triangle2 = (Triangle){ v2, v3, v4, c, c, c };
+	draw_triangle(triangle1, true, semitrans);
+	draw_triangle(triangle2, true, semitrans);
+}
+
 static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
 	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex pos = read_vertex(gpu.word_buffer[1]);
@@ -265,6 +279,9 @@ static void gpu_execute_command(void) {
 		break;
 	case QUAD_SHADED_OPAQUE: case QUAD_SHADED_SEMITRANS:
 		gpu_draw_quad_shaded(semitrans);
+		break;
+	case QUAD_TEXTURED_OPAQUE_BLENDED:
+		gpu_draw_quad_textured_blended(semitrans);
 		break;
 	case RECT_MONO_OPAQUE: case RECT_MONO_SEMITRANS:
 		gpu_draw_rect_mono(0, semitrans);

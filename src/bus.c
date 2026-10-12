@@ -1,5 +1,6 @@
 #include "bus.h"
 #include "gpu.h"
+#include "dma.h"
 #include "bios.h"
 #include "debug.h"
 
@@ -60,7 +61,7 @@ static const MemoryRegion MEMORY_REGIONS[] = {
 	{ "RAM_SIZE",   0x1F801060, 4,   NULL, NULL },
 	{ "ISTAT",      0x1F801070, 4,   NULL, NULL },
 	{ "IMASK",      0x1F801074, 4,   NULL, NULL },
-	{ "DMA",        0x1F801080, 128, NULL, NULL },
+	{ "DMA",        0x1F801080, 128, dma_write, NULL },
 	{ "GPU",        0x1F801810, 8,   gpu_write, gpu_read },
 	{ "TIMERS",     0x1F801100, 48,  NULL, NULL },
 	{ "SPU",        0x1F801C00, 640, NULL, NULL },

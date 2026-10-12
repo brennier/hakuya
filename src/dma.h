@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
-void dma_register_write(uint32_t relative_address, uint32_t value);
+uint32_t dma_read(uint32_t address, int bytes);
+void dma_write(uint32_t address, uint32_t value, int bytes);
 
 #endif // HAGKUYA_DMA_H

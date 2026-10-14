@@ -524,6 +524,14 @@ static inline bool is_top_or_left(Vertex v1, Vertex v2) {
 	return (sub.y < 0) || (sub.y == 0 && sub.x > 0);
 }
 
+static inline void gpu_put_pixel(uint16_t *pixel, uint32_t color, bool semitrans) {
+	if (semitrans) {
+		*pixel = blend_average16(color32to16(color), *pixel);
+	} else {
+		*pixel = color32to16(color);
+	}
+}
+
 void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size) {
 	// Clamp to the dimensions of the canvas
 	Vertex end = (Vertex){ .x = pos.x + size.x, .y = pos.y + size.y };
@@ -534,17 +542,9 @@ void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Verte
 	if (end.x > gpu.drawing_area_end.x) end.x = gpu.drawing_area_end.x;
 	if (end.y > gpu.drawing_area_end.y) end.y = gpu.drawing_area_end.y;
 
-	if (semitrans) {
-		for (int y = pos.y; y < end.y; y++)
-		for (int x = pos.x; x < end.x; x++) {
-			uint16_t *pixel = &gpu.vram[y][x];
-			*pixel = blend_average16(color32to16(color), *pixel);
-		}
-	} else {
-		for (int y = pos.y; y < end.y; y++)
-		for (int x = pos.x; x < end.x; x++)
-			gpu.vram[y][x] = color32to16(color);
-	}
+	for (int y = pos.y; y < end.y; y++)
+	for (int x = pos.x; x < end.x; x++)
+		gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
 }
 
 static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
@@ -613,13 +613,8 @@ static inline void draw_line(Vertex v1, Vertex v2, uint32_t c1, uint32_t c2, boo
 		for (int16_t x = v1.x; x <= v2.x; x++) {
 			int16_t y = (int16_t)roundf(slope * x + intercept);
 			float a1 = (float)x / (float)(v2.x - v1.x);
-			uint32_t c = blend_line32(c1, c2, a1, 1.0f - a1);
-			uint16_t *pixel = &gpu.vram[y][x];
-			if (semitrans) {
-				*pixel = blend_average16(color32to16(c), *pixel);
-			} else {
-				*pixel = color32to16(c);
-			}
+			uint32_t color = blend_line32(c1, c2, a1, 1.0f - a1);
+			gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
 		}
 	} else {
 		// Swap so that v1.y is always less than v2.y
@@ -634,13 +629,8 @@ static inline void draw_line(Vertex v1, Vertex v2, uint32_t c1, uint32_t c2, boo
 		for (int16_t y = v1.y; y <= v2.y; y++) {
 			int16_t x = (int16_t)roundf((y - intercept) / slope);
 			float a1 = (float)y / (float)(v2.y - v1.y);
-			uint32_t c = blend_line32(c1, c2, a1, 1.0f - a1);
-			uint16_t *pixel = &gpu.vram[y][x];
-			if (semitrans) {
-				*pixel = blend_average16(color32to16(c), *pixel);
-			} else {
-				*pixel = color32to16(c);
-			}
+			uint32_t color = blend_line32(c1, c2, a1, 1.0f - a1);
+			gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
 		}
 	}
 }
@@ -730,24 +720,19 @@ static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans)
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
-				uint32_t c;
+				uint32_t color;
 
 				if (shaded) {
 					float a0 = (float)w1 / (float)double_area;
 					float a1 = (float)w2 / (float)double_area;
 					float a2 = (float)w0 / (float)double_area;
-					c = blend_triangle32(c0, c1, c2, a0, a1, a2);
+					color = blend_triangle32(c0, c1, c2, a0, a1, a2);
 					if (gpu.dithering_enabled)
-						c = apply_dither32(x, y, c);
+						color = apply_dither32(x, y, color);
 				} else {
-					c = c0;
+					color = c0;
 				}
-
-				if (semitrans) {
-					*pixel = blend_average16(color32to16(c), *pixel);
-				} else {
-					*pixel = color32to16(c);
-				}
+				gpu_put_pixel(pixel, color, semitrans);
 			} else if (reached_triangle) {
 				break;
 			}

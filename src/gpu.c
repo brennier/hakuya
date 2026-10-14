@@ -27,6 +27,8 @@ enum GPUCommand {
 	POLYLINE_MONO_SEMITRANS = 0x4A, // 0010 1010
 	LINE_SHADED_OPAQUE    = 0x50, // 0011 0000
 	LINE_SHADED_SEMITRANS = 0x52, // 0011 0010
+	POLYLINE_SHADED_OPAQUE  = 0x58, // 0010 1000
+	POLYLINE_SHADED_SEMITRANS = 0x5A, // 0010 1010
 
 	RECT_MONO_OPAQUE      = 0x60, // 0110 0000
 	RECT_MONO_SEMITRANS   = 0x62, // 0110 0010
@@ -56,6 +58,7 @@ typedef struct {
 
 typedef struct {
 	enum {
+		NONE,
 		POLY,
 		QUAD,
 		LINE,
@@ -66,7 +69,8 @@ typedef struct {
 	Vertex vertex[4];
 	uint32_t color[4];
 	uint16_t clut, texpage, height, width;
-	bool shaded, textured, semitrans, polyline, raw;
+	bool shaded, textured, semitrans, raw_texture;
+	bool unfinished_polyline;
 } DrawingPrimitive;
 
 struct HakuyaGPU {
@@ -341,7 +345,23 @@ static void gpu_draw_polyline_mono(bool semitrans) {
 		.type   = POLYLINE,
 		.vertex = { start, end },
 		.color  = { color, color },
-		.semitrans = semitrans
+		.semitrans = semitrans,
+	};
+	gpu.current_drawing = line;
+	draw_line(line);
+}
+
+static void gpu_draw_polyline_shaded(bool semitrans) {
+	uint32_t color1 = gpu.word_buffer[0] & 0x00FFFFFF;
+	Vertex start = read_vertex(gpu.word_buffer[1]);
+	uint32_t color2 = gpu.word_buffer[2] & 0x00FFFFFF;
+	Vertex end   = read_vertex(gpu.word_buffer[3]);
+	DrawingPrimitive line = {
+		.type   = POLYLINE,
+		.vertex = { start, end },
+		.color  = { color1, color2 },
+		.semitrans = semitrans,
+		.shaded = true,
 	};
 	gpu.current_drawing = line;
 	draw_line(line);
@@ -386,6 +406,9 @@ static void gpu_execute_command(void) {
 		break;
 	case POLYLINE_MONO_OPAQUE: case POLYLINE_MONO_SEMITRANS:
 		gpu_draw_polyline_mono(semitrans);
+		break;
+	case POLYLINE_SHADED_OPAQUE: case POLYLINE_SHADED_SEMITRANS:
+		gpu_draw_polyline_shaded(semitrans);
 		break;
 	case LINE_SHADED_OPAQUE: case LINE_SHADED_SEMITRANS:
 		gpu_draw_line_shaded(semitrans);
@@ -482,13 +505,22 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	(void)address;
 
 	if (gpu.current_drawing.type == POLYLINE) {
-		if ((value & 0x50005000) == 0x50005000) {
+		if (gpu.current_drawing.unfinished_polyline) {
+			gpu.current_drawing.vertex[0] = gpu.current_drawing.vertex[1];
+			gpu.current_drawing.vertex[1] = read_vertex(value);
+			gpu.current_drawing.unfinished_polyline = false;
+			draw_line(gpu.current_drawing);
+		} else if ((value & 0x50005000) == 0x50005000) {
 			gpu.current_drawing = (DrawingPrimitive){ 0 };
-			return;
+		} else if (gpu.current_drawing.shaded) {
+			gpu.current_drawing.color[0] = gpu.current_drawing.color[1];
+			gpu.current_drawing.color[1] = value & 0x00FFFFFF;
+			gpu.current_drawing.unfinished_polyline = true;
+		} else {
+			gpu.current_drawing.vertex[0] = gpu.current_drawing.vertex[1];
+			gpu.current_drawing.vertex[1] = read_vertex(value);
+			draw_line(gpu.current_drawing);
 		}
-		gpu.current_drawing.vertex[0] = gpu.current_drawing.vertex[1];
-		gpu.current_drawing.vertex[1] = read_vertex(value);
-		draw_line(gpu.current_drawing);
 		return;
 	}
 
@@ -666,7 +698,6 @@ static inline void draw_line(DrawingPrimitive line) {
 
 	// Vertical line case
 	if (v1.x == v2.x) {
-		// Swap so that v1.y is always less than v2.y
 		if (v2.y < v1.y) {
 			uint32_t temp_c = c1;
 			c1 = c2;
@@ -677,8 +708,8 @@ static inline void draw_line(DrawingPrimitive line) {
 		}
 
 		for (int16_t y = v1.y; y <= v2.y; y++) {
-			float a1 = (float)y / (float)(v2.y - v1.y);
-			uint32_t c = blend_line32(c1, c2, a1, 1.0f - a1);
+			float a1 = (float)(y - v1.y) / (float)(v2.y - v1.y);
+			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
 			gpu.vram[y][v1.x] = color32to16(c);
 		}
 		return;
@@ -698,8 +729,8 @@ static inline void draw_line(DrawingPrimitive line) {
 		}
 		for (int16_t x = v1.x; x <= v2.x; x++) {
 			int16_t y = (int16_t)roundf(slope * x + intercept);
-			float a1 = (float)x / (float)(v2.x - v1.x);
-			uint32_t color = blend_line32(c1, c2, a1, 1.0f - a1);
+			float a1 = (float)(x - v1.x) / (float)(v2.x - v1.x);
+			uint32_t color = blend_line32(c2, c1, a1, 1.0f - a1);
 			gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
 		}
 	} else {
@@ -714,8 +745,8 @@ static inline void draw_line(DrawingPrimitive line) {
 		}
 		for (int16_t y = v1.y; y <= v2.y; y++) {
 			int16_t x = (int16_t)roundf((y - intercept) / slope);
-			float a1 = (float)y / (float)(v2.y - v1.y);
-			uint32_t color = blend_line32(c1, c2, a1, 1.0f - a1);
+			float a1 = (float)(y - v1.y) / (float)(v2.y - v1.y);
+			uint32_t color = blend_line32(c2, c1, a1, 1.0f - a1);
 			gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
 		}
 	}

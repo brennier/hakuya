@@ -532,15 +532,19 @@ static inline void gpu_put_pixel(uint16_t *pixel, uint32_t color, bool semitrans
 	}
 }
 
+static inline void clamp_to_drawing_area(Vertex *v) {
+	if      (v->x < gpu.drawing_area_beg.x) v->x = gpu.drawing_area_beg.x;
+	else if (v->x > gpu.drawing_area_end.x) v->x = gpu.drawing_area_end.x;
+
+	if      (v->y < gpu.drawing_area_beg.y) v->y = gpu.drawing_area_beg.y;
+	else if (v->y > gpu.drawing_area_end.y) v->y = gpu.drawing_area_end.y;
+}
+
 void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size) {
 	// Clamp to the dimensions of the canvas
 	Vertex end = (Vertex){ .x = pos.x + size.x, .y = pos.y + size.y };
-
-	// Clamp to the dimensions of the canvas
-	if (pos.x < gpu.drawing_area_beg.x) pos.x = gpu.drawing_area_beg.x;
-	if (pos.y < gpu.drawing_area_beg.y) pos.y = gpu.drawing_area_beg.y;
-	if (end.x > gpu.drawing_area_end.x) end.x = gpu.drawing_area_end.x;
-	if (end.y > gpu.drawing_area_end.y) end.y = gpu.drawing_area_end.y;
+	clamp_to_drawing_area(&pos);
+	clamp_to_drawing_area(&end);
 
 	for (int y = pos.y; y < end.y; y++)
 	for (int x = pos.x; x < end.x; x++)
@@ -661,42 +665,39 @@ static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans)
 	}
 
 	// Compute the bounding box of the triangle
-	int16_t min_x = find_min(v0.x, v1.x, v2.x);
-	int16_t min_y = find_min(v0.y, v1.y, v2.y);
-	int16_t max_x = find_max(v0.x, v1.x, v2.x);
-	int16_t max_y = find_max(v0.y, v1.y, v2.y);
+	Vertex start = {
+		.x = find_min(v0.x, v1.x, v2.x),
+		.y = find_min(v0.y, v1.y, v2.y),
+	};
+	Vertex end = {
+		.x = find_max(v0.x, v1.x, v2.x),
+		.y = find_max(v0.y, v1.y, v2.y),
+	};
 
 	// Clamp to the dimensions of the canvas
-	if (min_x < gpu.drawing_area_beg.x) min_x = gpu.drawing_area_beg.x;
-	if (min_y < gpu.drawing_area_beg.y) min_y = gpu.drawing_area_beg.y;
-	if (max_x > gpu.drawing_area_end.x) max_x = gpu.drawing_area_end.x;
-	if (max_y > gpu.drawing_area_end.y) max_y = gpu.drawing_area_end.y;
-
-	Vertex xy_start = {
-		.x = (int16_t)min_x,
-		.y = (int16_t)min_y,
-	};
+	clamp_to_drawing_area(&start);
+	clamp_to_drawing_area(&end);
 
 	// Compute the w0 starts and the x/y deltas
 	int w0_start = vec2_cross(
-		vec2_sub(v0, xy_start),
-		vec2_sub(v1, xy_start)
+		vec2_sub(v0, start),
+		vec2_sub(v1, start)
 		);
 	int w0_delta_x = v0.y - v1.y;
 	int w0_delta_y = v1.x - v0.x;
 
 	// Compute the w1 starts and the x/y deltas
 	int w1_start = vec2_cross(
-		vec2_sub(v1, xy_start),
-		vec2_sub(v2, xy_start)
+		vec2_sub(v1, start),
+		vec2_sub(v2, start)
 		);
 	int w1_delta_x = v1.y - v2.y;
 	int w1_delta_y = v2.x - v1.x;
 
 	// Compute the w2 starts and the x/y deltas
 	int w2_start = vec2_cross(
-		vec2_sub(v2, xy_start),
-		vec2_sub(v0, xy_start)
+		vec2_sub(v2, start),
+		vec2_sub(v0, start)
 		);
 	int w2_delta_x = v2.y - v0.y;
 	int w2_delta_y = v0.x - v2.x;
@@ -706,17 +707,17 @@ static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans)
 	if (is_top_or_left(v1, v2)) w1_start += 1;
 	if (is_top_or_left(v2, v0)) w2_start += 1;
 
-	uint16_t *pixel_start = &gpu.vram[min_y][min_x];
+	uint16_t *pixel_start = &gpu.vram[start.y][start.x];
 	int pixel_delta_y = VRAM_WIDTH;
 
 	bool reached_triangle = false;
 
-	for (int16_t y = min_y; y <= max_y; y++) {
+	for (int16_t y = start.y; y <= end.y; y++) {
 		int w0 = w0_start;
 		int w1 = w1_start;
 		int w2 = w2_start;
 		uint16_t *pixel = pixel_start;
-		for (int16_t x = min_x; x <= max_x; x++) {
+		for (int16_t x = start.x; x <= end.x; x++) {
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;

@@ -23,6 +23,8 @@ enum GPUCommand {
 
 	LINE_MONO_OPAQUE      = 0x40, // 0010 0000
 	LINE_MONO_SEMITRANS   = 0x42, // 0010 0010
+	POLYLINE_MONO_OPAQUE  = 0x48, // 0010 1000
+	POLYLINE_MONO_SEMITRANS = 0x4A, // 0010 1010
 	LINE_SHADED_OPAQUE    = 0x50, // 0011 0000
 	LINE_SHADED_SEMITRANS = 0x52, // 0011 0010
 
@@ -56,6 +58,8 @@ static uint8_t gpu_command_length[0x100] = {
 	[QUAD_SHADED_SEMITRANS] = 8,
 	[LINE_MONO_OPAQUE]      = 3,
 	[LINE_MONO_SEMITRANS]   = 3,
+	[POLYLINE_MONO_OPAQUE]    = 3,
+	[POLYLINE_MONO_SEMITRANS] = 3,
 	[LINE_SHADED_OPAQUE]    = 4,
 	[LINE_SHADED_SEMITRANS] = 4,
 	[RECT_MONO_OPAQUE]      = 3,
@@ -103,6 +107,10 @@ struct HakuyaGPU {
 	bool dithering_enabled;
 
 	bool cpu_to_vram_copy_mode;
+	Vertex polyline_last_vertex;
+	uint32_t polyline_last_color;
+	bool polyline_semitrans;
+	bool polyline_mode;
 	Vertex copy_current;
 	Vertex copy_start;
 	Vertex copy_end;
@@ -291,6 +299,17 @@ static void gpu_draw_line_shaded(bool semitrans) {
 	draw_line(start, end, color1, color2, semitrans);
 }
 
+static void gpu_draw_polyline_mono(bool semitrans) {
+	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
+	Vertex start = read_vertex(gpu.word_buffer[1]);
+	Vertex end   = read_vertex(gpu.word_buffer[2]);
+	draw_line(start, end, color, color, semitrans);
+	gpu.polyline_last_vertex = end;
+	gpu.polyline_last_color = color;
+	gpu.polyline_semitrans = semitrans;
+	gpu.polyline_mode = true;
+}
+
 static void gpu_execute_command(void) {
 	bool semitrans = gpu.word_buffer[0] & (1u << 25);
 	switch (gpu.command) {
@@ -327,6 +346,9 @@ static void gpu_execute_command(void) {
 		break;
 	case LINE_MONO_OPAQUE: case LINE_MONO_SEMITRANS:
 		gpu_draw_line_mono(semitrans);
+		break;
+	case POLYLINE_MONO_OPAQUE: case POLYLINE_MONO_SEMITRANS:
+		gpu_draw_polyline_mono(semitrans);
 		break;
 	case LINE_SHADED_OPAQUE: case LINE_SHADED_SEMITRANS:
 		gpu_draw_line_shaded(semitrans);
@@ -399,6 +421,18 @@ uint32_t gpu_read_gp1(uint32_t address, int bytes) {
 void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	(void)bytes;
 	(void)address;
+
+	if (gpu.polyline_mode) {
+		if ((value & 0x50005000) == 0x50005000) {
+			gpu.polyline_mode = false;
+			return;
+		}
+		Vertex next = read_vertex(value);
+		draw_line(gpu.polyline_last_vertex, next, gpu.polyline_last_color, gpu.polyline_last_color, gpu.polyline_semitrans);
+		gpu.polyline_last_vertex = next;
+		return;
+	}
+
 	if (gpu.cpu_to_vram_copy_mode) {
 		uint16_t color0 = (uint16_t)(value & 0xFFFF);
 		uint16_t color1 = (uint16_t)(value >> 16);
@@ -561,6 +595,16 @@ static inline void draw_line(Vertex v1, Vertex v2, uint32_t c1, uint32_t c2, boo
 
 	// Vertical line case
 	if (v1.x == v2.x) {
+		// Swap so that v1.y is always less than v2.y
+		if (v2.y < v1.y) {
+			uint32_t temp_c = c1;
+			c1 = c2;
+			c2 = temp_c;
+			Vertex temp_v = v1;
+			v1 = v2;
+			v2 = temp_v;
+		}
+
 		for (int16_t y = v1.y; y <= v2.y; y++) {
 			float a1 = (float)y / (float)(v2.y - v1.y);
 			uint32_t c = blend_line32(c1, c2, a1, 1.0f - a1);
@@ -574,9 +618,12 @@ static inline void draw_line(Vertex v1, Vertex v2, uint32_t c1, uint32_t c2, boo
 	if (slope <= 1 && slope >= -1) {
 		// Swap so that v1.x is always less than v2.x
 		if (v2.x < v1.x) {
-			Vertex temp = v1;
+			uint32_t temp_c = c1;
+			c1 = c2;
+			c2 = temp_c;
+			Vertex temp_v = v1;
 			v1 = v2;
-			v2 = temp;
+			v2 = temp_v;
 		}
 		for (int16_t x = v1.x; x <= v2.x; x++) {
 			int16_t y = (int16_t)roundf(slope * x + intercept);
@@ -592,9 +639,12 @@ static inline void draw_line(Vertex v1, Vertex v2, uint32_t c1, uint32_t c2, boo
 	} else {
 		// Swap so that v1.y is always less than v2.y
 		if (v2.y < v1.y) {
-			Vertex temp = v1;
+			uint32_t temp_c = c1;
+			c1 = c2;
+			c2 = temp_c;
+			Vertex temp_v = v1;
 			v1 = v2;
-			v2 = temp;
+			v2 = temp_v;
 		}
 		for (int16_t y = v1.y; y <= v2.y; y++) {
 			int16_t x = (int16_t)roundf((y - intercept) / slope);

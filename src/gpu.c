@@ -44,39 +44,6 @@ enum GPUCommand {
 	SET_DRAWING_AREA_END  = 0xE4, // 1110 0100
 };
 
-static uint8_t gpu_command_length[0x100] = {
-	[NO_COMMAND]            = 1,
-	[FILL_RECTANGLE]        = 3,
-	[POLY_MONO_OPAQUE]      = 4,
-	[POLY_MONO_SEMITRANS]   = 4,
-	[QUAD_MONO_OPAQUE]      = 5,
-	[QUAD_MONO_SEMITRANS]   = 5,
-	[QUAD_TEXTURED_OPAQUE_BLENDED] = 9,
-	[POLY_SHADED_OPAQUE]    = 6,
-	[POLY_SHADED_SEMITRANS] = 6,
-	[QUAD_SHADED_OPAQUE]    = 8,
-	[QUAD_SHADED_SEMITRANS] = 8,
-	[LINE_MONO_OPAQUE]      = 3,
-	[LINE_MONO_SEMITRANS]   = 3,
-	[POLYLINE_MONO_OPAQUE]    = 3,
-	[POLYLINE_MONO_SEMITRANS] = 3,
-	[LINE_SHADED_OPAQUE]    = 4,
-	[LINE_SHADED_SEMITRANS] = 4,
-	[RECT_MONO_OPAQUE]      = 3,
-	[RECT_MONO_SEMITRANS]   = 3,
-	[DOT_MONO_OPAQUE]       = 2,
-	[DOT_MONO_SEMITRANS]    = 2,
-	[RECT8_MONO_OPAQUE]     = 2,
-	[RECT8_MONO_SEMITRANS]  = 2,
-	[RECT16_MONO_OPAQUE]    = 2,
-	[RECT16_MONO_SEMITRANS] = 2,
-	[VRAM_TO_VRAM_COPY]     = 4,
-	[CPU_TO_VRAM_COPY]      = 3,
-	[SET_DRAWING_SETTINGS]  = 1,
-	[SET_DRAWING_AREA_BEG]  = 1,
-	[SET_DRAWING_AREA_END]  = 1,
-};
-
 typedef struct {
 	int16_t x;
 	int16_t y;
@@ -418,6 +385,28 @@ uint32_t gpu_read_gp1(uint32_t address, int bytes) {
 	return result;
 }
 
+static inline uint8_t gpu_compute_command_length(uint32_t command) {
+	static const uint8_t gpu_command_length[256] = {
+		1, 1, 3, 1, 1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,
+		4, 4, 4, 4, 7, 7, 7, 7, 5, 5, 5, 5,  9,  9,  9,  9,
+		6, 6, 6, 6, 9, 9, 9, 9, 8, 8, 8, 8, 12, 12, 12, 12,
+		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,  3,  3,  3,  3,
+		4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,  4,  4,  4,  4,
+		3, 3, 3, 3, 4, 4, 4, 4, 2, 2, 2, 2,  3,  3,  3,  3,
+		2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 2, 2,  3,  3,  3,  3,
+		4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,  4,  4,  4,  4,
+		4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,  4,  4,  4,  4,
+		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,  3,  3,  3,  3,
+		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,  3,  3,  3,  3,
+		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,  3,  3,  3,  3,
+		3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,  3,  3,  3,  3,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,
+		1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,  1,  1,  1,  1,
+	};
+	return gpu_command_length[command >> 24];
+}
+
 void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	(void)bytes;
 	(void)address;
@@ -461,11 +450,7 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 
 	if (gpu.remaining_words == 0) {
 		gpu.command = (value >> 24);
-		uint8_t command_length = gpu_command_length[gpu.command];
-		if (command_length == 0) {
-			fprintf(stderr, "[INFO] Unimplemented GPU0 write with value %08X\n", value);
-			return;
-		}
+		uint8_t command_length = gpu_compute_command_length(value);
 		gpu.current_word = 0;
 		gpu.remaining_words = command_length;
 	}

@@ -23,6 +23,8 @@ enum GPUCommand {
 
 	LINE_MONO_OPAQUE      = 0x40, // 0010 0000
 	LINE_MONO_SEMITRANS   = 0x42, // 0010 0010
+	LINE_SHADED_OPAQUE    = 0x50, // 0011 0000
+	LINE_SHADED_SEMITRANS = 0x52, // 0011 0010
 
 	RECT_MONO_OPAQUE      = 0x60, // 0110 0000
 	RECT_MONO_SEMITRANS   = 0x62, // 0110 0010
@@ -54,6 +56,8 @@ static uint8_t gpu_command_length[0x100] = {
 	[QUAD_SHADED_SEMITRANS] = 8,
 	[LINE_MONO_OPAQUE]      = 3,
 	[LINE_MONO_SEMITRANS]   = 3,
+	[LINE_SHADED_OPAQUE]    = 4,
+	[LINE_SHADED_SEMITRANS] = 4,
 	[RECT_MONO_OPAQUE]      = 3,
 	[RECT_MONO_SEMITRANS]   = 3,
 	[DOT_MONO_OPAQUE]       = 2,
@@ -127,6 +131,22 @@ static inline uint32_t blend_triangle32(uint32_t c1, uint32_t c2, uint32_t c3,
 	return (uint32_t)((b << 16) | (g << 8) | r);
 }
 
+static inline uint32_t blend_line32(uint32_t c1, uint32_t c2, float a1, float a2) {
+	uint8_t c1r = (c1 >>  0) & 0xFF;
+	uint8_t c1g = (c1 >>  8) & 0xFF;
+	uint8_t c1b = (c1 >> 16) & 0xFF;
+
+	uint8_t c2r = (c2 >>  0) & 0xFF;
+	uint8_t c2g = (c2 >>  8) & 0xFF;
+	uint8_t c2b = (c2 >> 16) & 0xFF;
+
+	uint8_t r = (uint8_t)(c1r * a1 + c2r * a2);
+	uint8_t g = (uint8_t)(c1g * a1 + c2g * a2);
+	uint8_t b = (uint8_t)(c1b * a1 + c2b * a2);
+
+	return (uint32_t)((b << 16) | (g << 8) | r);
+}
+
 // This does floor((a+b)/2)
 static inline uint16_t blend_average16(uint16_t a, uint16_t b) {
 	return (a & b) + (((a ^ b) >> 1) & 0x3DEFu);
@@ -185,7 +205,7 @@ static inline Vertex read_vertex(uint32_t word) {
 
 void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size);
 static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans);
-static inline void draw_line(Vertex v1, Vertex v2, uint32_t c, bool semitrans);
+static inline void draw_line(Vertex v1, Vertex v2, uint32_t c1, uint32_t c2, bool semitrans);
 
 static void gpu_draw_poly_mono(bool semitrans) {
 	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
@@ -260,7 +280,15 @@ static void gpu_draw_line_mono(bool semitrans) {
 	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 	Vertex start = read_vertex(gpu.word_buffer[1]);
 	Vertex end   = read_vertex(gpu.word_buffer[2]);
-	draw_line(start, end, color, semitrans);
+	draw_line(start, end, color, color, semitrans);
+}
+
+static void gpu_draw_line_shaded(bool semitrans) {
+	uint32_t color1 = gpu.word_buffer[0] & 0x00FFFFFF;
+	Vertex start = read_vertex(gpu.word_buffer[1]);
+	uint32_t color2 = gpu.word_buffer[2] & 0x00FFFFFF;
+	Vertex end   = read_vertex(gpu.word_buffer[3]);
+	draw_line(start, end, color1, color2, semitrans);
 }
 
 static void gpu_execute_command(void) {
@@ -299,6 +327,9 @@ static void gpu_execute_command(void) {
 		break;
 	case LINE_MONO_OPAQUE: case LINE_MONO_SEMITRANS:
 		gpu_draw_line_mono(semitrans);
+		break;
+	case LINE_SHADED_OPAQUE: case LINE_SHADED_SEMITRANS:
+		gpu_draw_line_shaded(semitrans);
 		break;
 	case RECT_MONO_OPAQUE: case RECT_MONO_SEMITRANS:
 		gpu_draw_rect_mono(0, semitrans);
@@ -523,10 +554,16 @@ static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
 	return ((uint32_t)b << 16) | ((uint32_t)g << 8) | (uint32_t)r;
 }
 
-static inline void draw_line(Vertex v1, Vertex v2, uint32_t c, bool semitrans) {
+static inline void draw_line(Vertex v1, Vertex v2, uint32_t c1, uint32_t c2, bool semitrans) {
+	// Degenerate case
+	if (v1.x == v2.x && v1.y == v2.y)
+		return;
+
 	// Vertical line case
 	if (v1.x == v2.x) {
 		for (int16_t y = v1.y; y <= v2.y; y++) {
+			float a1 = (float)y / (float)(v2.y - v1.y);
+			uint32_t c = blend_line32(c1, c2, a1, 1.0f - a1);
 			gpu.vram[y][v1.x] = color32to16(c);
 		}
 		return;
@@ -543,6 +580,8 @@ static inline void draw_line(Vertex v1, Vertex v2, uint32_t c, bool semitrans) {
 		}
 		for (int16_t x = v1.x; x <= v2.x; x++) {
 			int16_t y = (int16_t)roundf(slope * x + intercept);
+			float a1 = (float)x / (float)(v2.x - v1.x);
+			uint32_t c = blend_line32(c1, c2, a1, 1.0f - a1);
 			uint16_t *pixel = &gpu.vram[y][x];
 			if (semitrans) {
 				*pixel = blend_average16(color32to16(c), *pixel);
@@ -559,6 +598,8 @@ static inline void draw_line(Vertex v1, Vertex v2, uint32_t c, bool semitrans) {
 		}
 		for (int16_t y = v1.y; y <= v2.y; y++) {
 			int16_t x = (int16_t)roundf((y - intercept) / slope);
+			float a1 = (float)y / (float)(v2.y - v1.y);
+			uint32_t c = blend_line32(c1, c2, a1, 1.0f - a1);
 			uint16_t *pixel = &gpu.vram[y][x];
 			if (semitrans) {
 				*pixel = blend_average16(color32to16(c), *pixel);

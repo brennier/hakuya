@@ -334,42 +334,23 @@ static void gpu_execute_command(void) {
 	}
 }
 
-uint32_t gpu_read(uint32_t address, int bytes) {
+uint32_t gpu_read_gp0(uint32_t address, int bytes) {
+	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0x%08X)\n",
+		bytes * 8, "GPU0", address, 0);
+	return 0;
+}
+
+uint32_t gpu_read_gp1(uint32_t address, int bytes) {
 	// Always signal that the GPU is ready
 	uint32_t result = (1u << 26) | (1u << 27) | (1u << 28);
 	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0x%08X)\n",
-		bytes * 8, "GPU", address, result);
+		bytes * 8, "GPU1", address, result);
 	return result;
 }
 
-void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
+void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	(void)bytes;
-	if (rel_address == 4) {
-		switch (value >> 24) {
-		case 0x05:
-			gpu.display_area.pos.x = (value >>  0) & 0x3FF;
-			gpu.display_area.pos.y = (value >> 10) & 0x1FF;
-			break;
-		case 0x08:
-			if (value & 0x40) {
-				gpu.display_area.size.x = 368;
-			} else {
-				static const int16_t widths[4] = { 256, 320, 512, 640 };
-				gpu.display_area.size.x = widths[value & 0x03];
-			}
-
-			if (value & 0x04) {
-				gpu.display_area.size.y = 480;
-			} else {
-				gpu.display_area.size.y = 240;
-			}
-			break;
-		default:
-			fprintf(stderr, "[INFO] Unimplemented GPU1 write with value %08X\n", value);
-		}
-		return;
-	}
-
+	(void)address;
 	if (gpu.cpu_to_vram_copy_mode) {
 		uint16_t color0 = (uint16_t)(value & 0xFFFF);
 		uint16_t color1 = (uint16_t)(value >> 16);
@@ -413,6 +394,33 @@ void gpu_write(uint32_t rel_address, uint32_t value, int bytes) {
 		gpu_execute_command();
 		gpu.remaining_words = 0;
 		gpu.current_word = 0;
+	}
+}
+
+void gpu_write_gp1(uint32_t address, uint32_t value, int bytes) {
+	(void)address;
+	(void)bytes;
+	switch (value >> 24) {
+	case 0x05:
+		gpu.display_area.pos.x = (value >>  0) & 0x3FF;
+		gpu.display_area.pos.y = (value >> 10) & 0x1FF;
+		break;
+	case 0x08:
+		if (value & 0x40) {
+			gpu.display_area.size.x = 368;
+		} else {
+			static const int16_t widths[4] = { 256, 320, 512, 640 };
+			gpu.display_area.size.x = widths[value & 0x03];
+		}
+
+		if (value & 0x04) {
+			gpu.display_area.size.y = 480;
+		} else {
+			gpu.display_area.size.y = 240;
+		}
+		break;
+	default:
+		fprintf(stderr, "[INFO] Unimplemented GPU1 write with value %08X\n", value);
 	}
 }
 

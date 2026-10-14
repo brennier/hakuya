@@ -23,8 +23,8 @@ enum GPUCommand {
 
 	LINE_MONO_OPAQUE      = 0x40, // 0010 0000
 	LINE_MONO_SEMITRANS   = 0x42, // 0010 0010
-	/* POLYLINE_MONO_OPAQUE  = 0x48, // 0010 1000 */
-	/* POLYLINE_MONO_SEMITRANS = 0x4A, // 0010 1010 */
+	POLYLINE_MONO_OPAQUE  = 0x48, // 0010 1000
+	POLYLINE_MONO_SEMITRANS = 0x4A, // 0010 1010
 	LINE_SHADED_OPAQUE    = 0x50, // 0011 0000
 	LINE_SHADED_SEMITRANS = 0x52, // 0011 0010
 
@@ -59,6 +59,7 @@ typedef struct {
 		POLY,
 		QUAD,
 		LINE,
+		POLYLINE,
 		RECT,
 		FILL,
 	} type;
@@ -69,6 +70,7 @@ typedef struct {
 } DrawingPrimitive;
 
 struct HakuyaGPU {
+	DrawingPrimitive current_drawing;
 	enum GPUCommand command;
 	uint32_t word_buffer[12];
 	uint8_t  current_word;
@@ -79,10 +81,6 @@ struct HakuyaGPU {
 	bool dithering_enabled;
 
 	bool cpu_to_vram_copy_mode;
-	Vertex polyline_last_vertex;
-	uint32_t polyline_last_color;
-	bool polyline_semitrans;
-	bool polyline_mode;
 	Vertex copy_current;
 	Vertex copy_start;
 	Vertex copy_end;
@@ -335,16 +333,19 @@ static void gpu_draw_line_shaded(bool semitrans) {
 	draw_line(line);
 }
 
-/* static void gpu_draw_polyline_mono(bool semitrans) { */
-/* 	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF; */
-/* 	Vertex start = read_vertex(gpu.word_buffer[1]); */
-/* 	Vertex end   = read_vertex(gpu.word_buffer[2]); */
-/* 	draw_line(start, end, color, color, semitrans); */
-/* 	gpu.polyline_last_vertex = end; */
-/* 	gpu.polyline_last_color = color; */
-/* 	gpu.polyline_semitrans = semitrans; */
-/* 	gpu.polyline_mode = true; */
-/* } */
+static void gpu_draw_polyline_mono(bool semitrans) {
+	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
+	Vertex start = read_vertex(gpu.word_buffer[1]);
+	Vertex end   = read_vertex(gpu.word_buffer[2]);
+	DrawingPrimitive line = {
+		.type   = POLYLINE,
+		.vertex = { start, end },
+		.color  = { color, color },
+		.semitrans = semitrans
+	};
+	gpu.current_drawing = line;
+	draw_line(line);
+}
 
 static void gpu_execute_command(void) {
 	bool semitrans = gpu.word_buffer[0] & (1u << 25);
@@ -383,9 +384,9 @@ static void gpu_execute_command(void) {
 	case LINE_MONO_OPAQUE: case LINE_MONO_SEMITRANS:
 		gpu_draw_line_mono(semitrans);
 		break;
-	/* case POLYLINE_MONO_OPAQUE: case POLYLINE_MONO_SEMITRANS: */
-		/* gpu_draw_polyline_mono(semitrans); */
-		/* break; */
+	case POLYLINE_MONO_OPAQUE: case POLYLINE_MONO_SEMITRANS:
+		gpu_draw_polyline_mono(semitrans);
+		break;
 	case LINE_SHADED_OPAQUE: case LINE_SHADED_SEMITRANS:
 		gpu_draw_line_shaded(semitrans);
 		break;
@@ -480,16 +481,16 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	(void)bytes;
 	(void)address;
 
-	/* if (gpu.polyline_mode) { */
-	/* 	if ((value & 0x50005000) == 0x50005000) { */
-	/* 		gpu.polyline_mode = false; */
-	/* 		return; */
-	/* 	} */
-	/* 	Vertex next = read_vertex(value); */
-	/* 	draw_line(gpu.polyline_last_vertex, next, gpu.polyline_last_color, gpu.polyline_last_color, gpu.polyline_semitrans); */
-	/* 	gpu.polyline_last_vertex = next; */
-	/* 	return; */
-	/* } */
+	if (gpu.current_drawing.type == POLYLINE) {
+		if ((value & 0x50005000) == 0x50005000) {
+			gpu.current_drawing = (DrawingPrimitive){ 0 };
+			return;
+		}
+		gpu.current_drawing.vertex[0] = gpu.current_drawing.vertex[1];
+		gpu.current_drawing.vertex[1] = read_vertex(value);
+		draw_line(gpu.current_drawing);
+		return;
+	}
 
 	if (gpu.cpu_to_vram_copy_mode) {
 		uint16_t color0 = (uint16_t)(value & 0xFFFF);

@@ -2,12 +2,13 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <math.h>
 
 #define VRAM_WIDTH  1024
 #define VRAM_HEIGHT 512
 
 enum GPUCommand {
-	RESET                 = 0x00, // 0000 0000
+	NO_COMMAND            = 0x00, // 0000 0000
 	FILL_RECTANGLE        = 0x02, // 0000 0010
 
 	POLY_MONO_OPAQUE      = 0x20, // 0010 0000
@@ -19,6 +20,9 @@ enum GPUCommand {
 	POLY_SHADED_SEMITRANS = 0x32, // 0011 0010
 	QUAD_SHADED_OPAQUE    = 0x38, // 0011 1000
 	QUAD_SHADED_SEMITRANS = 0x3A, // 0011 1010
+
+	LINE_MONO_OPAQUE      = 0x40, // 0010 0000
+	LINE_MONO_SEMITRANS   = 0x42, // 0010 0010
 
 	RECT_MONO_OPAQUE      = 0x60, // 0110 0000
 	RECT_MONO_SEMITRANS   = 0x62, // 0110 0010
@@ -37,7 +41,7 @@ enum GPUCommand {
 };
 
 static uint8_t gpu_command_length[0x100] = {
-	[RESET]                 = 1,
+	[NO_COMMAND]            = 1,
 	[FILL_RECTANGLE]        = 3,
 	[POLY_MONO_OPAQUE]      = 4,
 	[POLY_MONO_SEMITRANS]   = 4,
@@ -48,6 +52,8 @@ static uint8_t gpu_command_length[0x100] = {
 	[POLY_SHADED_SEMITRANS] = 6,
 	[QUAD_SHADED_OPAQUE]    = 8,
 	[QUAD_SHADED_SEMITRANS] = 8,
+	[LINE_MONO_OPAQUE]      = 3,
+	[LINE_MONO_SEMITRANS]   = 3,
 	[RECT_MONO_OPAQUE]      = 3,
 	[RECT_MONO_SEMITRANS]   = 3,
 	[DOT_MONO_OPAQUE]       = 2,
@@ -179,6 +185,7 @@ static inline Vertex read_vertex(uint32_t word) {
 
 void draw_monochrome_rectangle(uint32_t color, bool semitrans, Vertex pos, Vertex size);
 static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans);
+static inline void draw_line(Vertex v1, Vertex v2, uint32_t c, bool semitrans);
 
 static void gpu_draw_poly_mono(bool semitrans) {
 	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
@@ -249,10 +256,17 @@ static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
 	draw_monochrome_rectangle(color, semitrans, pos, size);
 }
 
+static void gpu_draw_line_mono(bool semitrans) {
+	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
+	Vertex start = read_vertex(gpu.word_buffer[1]);
+	Vertex end   = read_vertex(gpu.word_buffer[2]);
+	draw_line(start, end, color, semitrans);
+}
+
 static void gpu_execute_command(void) {
 	bool semitrans = gpu.word_buffer[0] & (1u << 25);
 	switch (gpu.command) {
-	case RESET: break;
+	case NO_COMMAND: break;
 	case FILL_RECTANGLE: {
 		uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 		Vertex pos  = read_vertex(gpu.word_buffer[1]);
@@ -282,6 +296,9 @@ static void gpu_execute_command(void) {
 		break;
 	case QUAD_TEXTURED_OPAQUE_BLENDED:
 		gpu_draw_quad_textured_blended(semitrans);
+		break;
+	case LINE_MONO_OPAQUE: case LINE_MONO_SEMITRANS:
+		gpu_draw_line_mono(semitrans);
 		break;
 	case RECT_MONO_OPAQUE: case RECT_MONO_SEMITRANS:
 		gpu_draw_rect_mono(0, semitrans);
@@ -392,6 +409,7 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 
 	if (gpu.remaining_words == 0) {
 		gpu_execute_command();
+		gpu.command = NO_COMMAND;
 		gpu.remaining_words = 0;
 		gpu.current_word = 0;
 	}
@@ -503,6 +521,52 @@ static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
 	if (b > 255) b = 255;
 
 	return ((uint32_t)b << 16) | ((uint32_t)g << 8) | (uint32_t)r;
+}
+
+static inline void draw_line(Vertex v1, Vertex v2, uint32_t c, bool semitrans) {
+	// Vertical line case
+	if (v1.x == v2.x) {
+		for (int16_t y = v1.y; y <= v2.y; y++) {
+			gpu.vram[y][v1.x] = color32to16(c);
+		}
+		return;
+	}
+
+	float slope = (float)(v2.y - v1.y) / (float)(v2.x - v1.x);
+	float intercept = (float)v1.y - slope * (float)v1.x;
+	if (slope <= 1 && slope >= -1) {
+		// Swap so that v1.x is always less than v2.x
+		if (v2.x < v1.x) {
+			Vertex temp = v1;
+			v1 = v2;
+			v2 = temp;
+		}
+		for (int16_t x = v1.x; x <= v2.x; x++) {
+			int16_t y = (int16_t)roundf(slope * x + intercept);
+			uint16_t *pixel = &gpu.vram[y][x];
+			if (semitrans) {
+				*pixel = blend_average16(color32to16(c), *pixel);
+			} else {
+				*pixel = color32to16(c);
+			}
+		}
+	} else {
+		// Swap so that v1.y is always less than v2.y
+		if (v2.y < v1.y) {
+			Vertex temp = v1;
+			v1 = v2;
+			v2 = temp;
+		}
+		for (int16_t y = v1.y; y <= v2.y; y++) {
+			int16_t x = (int16_t)roundf((y - intercept) / slope);
+			uint16_t *pixel = &gpu.vram[y][x];
+			if (semitrans) {
+				*pixel = blend_average16(color32to16(c), *pixel);
+			} else {
+				*pixel = color32to16(c);
+			}
+		}
+	}
 }
 
 static inline void draw_triangle(Triangle triangle, bool shaded, bool semitrans) {

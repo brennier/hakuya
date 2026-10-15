@@ -67,8 +67,9 @@ typedef struct {
 		FILL,
 	} type;
 	Vertex vertex[4];
+	Vertex size;
 	uint32_t color[4];
-	uint16_t clut, texpage, height, width;
+	uint16_t clut, texpage;
 	bool shaded, textured, semitrans, raw_texture;
 	bool unfinished_polyline;
 } DrawingPrimitive;
@@ -302,8 +303,7 @@ static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
 		.type   = RECT,
 		.color  = { c },
 		.vertex = { pos },
-		.height = (uint16_t)size.y,
-		.width  = (uint16_t)size.x,
+		.size   = size,
 		.semitrans = semitrans,
 	};
 	draw_monochrome_rectangle(rectangle);
@@ -648,8 +648,8 @@ void draw_monochrome_rectangle(DrawingPrimitive rectangle) {
 	bool semitrans = rectangle.semitrans;
 	Vertex pos = rectangle.vertex[0];
 	Vertex end = (Vertex){
-		.x = pos.x + (int16_t)rectangle.width,
-		.y = pos.y + (int16_t)rectangle.height,
+		.x = pos.x + rectangle.size.x,
+		.y = pos.y + rectangle.size.y,
 	};
 	clamp_to_drawing_area(&pos);
 	clamp_to_drawing_area(&end);

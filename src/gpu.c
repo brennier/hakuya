@@ -7,12 +7,17 @@
 #define VRAM_WIDTH  1024
 #define VRAM_HEIGHT 512
 
-enum GPUCommand {
-	NO_COMMAND            = 0x00, // 0000 0000
-	FILL_RECTANGLE        = 0x02, // 0000 0010
-	SET_DRAWING_SETTINGS  = 0xE1, // 1110 0001
-	SET_DRAWING_AREA_BEG  = 0xE3, // 1110 0011
-	SET_DRAWING_AREA_END  = 0xE4, // 1110 0100
+enum MiscGPU0Command {
+	NO_OP                 = 0x00,
+	FLUSH_TEXTURE_CACHE   = 0x01,
+	FILL_RECTANGLE        = 0x02,
+	SET_GPU_IRQ_FLAG      = 0x1F,
+	SET_DRAWING_SETTINGS  = 0xE1,
+	SET_DRAWING_MASK      = 0xE2,
+	SET_DRAWING_AREA_BEG  = 0xE3,
+	SET_DRAWING_AREA_END  = 0xE4,
+	SET_DRAWING_OFFSET    = 0xE5,
+	SET_MASK_BIT_SETTINGS = 0xE6,
 };
 
 typedef struct {
@@ -46,7 +51,6 @@ typedef struct {
 
 struct HakuyaGPU {
 	DrawingPrimitive current_drawing;
-	enum GPUCommand command;
 	uint32_t word_buffer[12];
 	uint8_t  current_word;
 	uint8_t  remaining_words;
@@ -297,8 +301,9 @@ static void gpu_execute_command(uint32_t command) {
 		break;
 	}
 
-	switch (gpu.command) {
-	case NO_COMMAND: break;
+	enum MiscGPU0Command misc_command = (command >> 24);
+	switch (misc_command) {
+	case NO_OP: break;
 	case FILL_RECTANGLE: {
 		uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
 		Vertex pos  = read_vertex(gpu.word_buffer[1]);
@@ -419,7 +424,6 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	}
 
 	if (gpu.remaining_words == 0) {
-		gpu.command = (value >> 24);
 		uint8_t command_length = gpu_compute_command_length(value);
 		gpu.current_word = 0;
 		gpu.remaining_words = command_length;
@@ -429,7 +433,6 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 
 	if (gpu.remaining_words == 0) {
 		gpu_execute_command(gpu.word_buffer[0]);
-		gpu.command = NO_COMMAND;
 		gpu.remaining_words = 0;
 		gpu.current_word = 0;
 	}

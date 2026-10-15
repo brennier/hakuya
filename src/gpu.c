@@ -36,6 +36,7 @@ typedef struct {
 		FILL,
 	} type;
 	Vertex vertex[4];
+	Vertex uv[4];
 	Vertex size;
 	uint32_t color[4];
 	uint16_t clut, texpage;
@@ -172,15 +173,19 @@ static DrawingPrimitive gpu_parse_polygon_command(uint32_t command, uint32_t *ar
 	polygon.color[1] = polygon.color[0];
 	polygon.color[2] = polygon.color[0];
 	polygon.color[3] = polygon.color[0];
+	int j = 2;
 	if (polygon.textured) {
 		printf("[WARNING] Textured polygons are not implemented");
+		polygon.uv[0] = read_vertex(arguments[j++]);
 	}
-	int j = 2;
 	for (int i = 1; i < ((polygon.type == QUAD) ? 4 : 3); i++) {
 		if (polygon.shaded) {
 			polygon.color[i] = arguments[j++] & 0x00FFFFFF;
 		}
 		polygon.vertex[i] = read_vertex(arguments[j++]);
+		if (polygon.textured) {
+			polygon.uv[i] = read_vertex(arguments[j++]);
+		}
 	}
 	return polygon;
 }
@@ -222,7 +227,7 @@ static DrawingPrimitive gpu_parse_rectangle_command(uint32_t command, uint32_t *
 	int i = 2;
 	if (rectangle.textured) {
 		printf("[WARNING] Textured rectangles are not implemented");
-		i++;
+		rectangle.uv[0] = read_vertex(arguments[i++]);
 	}
 	if (rectangle.size.x == 0) {
 		rectangle.size = read_vertex(arguments[i++]);

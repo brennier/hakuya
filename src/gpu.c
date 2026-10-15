@@ -1,8 +1,6 @@
 #include "gpu.h"
-#include <stdint.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <math.h>
 
 #define VRAM_WIDTH  1024
 #define VRAM_HEIGHT 512
@@ -88,7 +86,7 @@ static inline uint32_t blend_triangle32(uint32_t c1, uint32_t c2, uint32_t c3,
 	return (uint32_t)((b << 16) | (g << 8) | r);
 }
 
-static inline uint32_t blend_line32(uint32_t c1, uint32_t c2, float a1, float a2) {
+static inline uint32_t interpolate_color32(uint32_t c1, uint32_t c2, float weight) {
 	uint8_t c1r = (c1 >>  0) & 0xFF;
 	uint8_t c1g = (c1 >>  8) & 0xFF;
 	uint8_t c1b = (c1 >> 16) & 0xFF;
@@ -97,6 +95,8 @@ static inline uint32_t blend_line32(uint32_t c1, uint32_t c2, float a1, float a2
 	uint8_t c2g = (c2 >>  8) & 0xFF;
 	uint8_t c2b = (c2 >> 16) & 0xFF;
 
+	float a2 = weight;
+	float a1 = 1.0f - weight;
 	uint8_t r = (uint8_t)(c1r * a1 + c2r * a2);
 	uint8_t g = (uint8_t)(c1g * a1 + c2g * a2);
 	uint8_t b = (uint8_t)(c1b * a1 + c2b * a2);
@@ -556,74 +556,37 @@ static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
 	return ((uint32_t)b << 16) | ((uint32_t)g << 8) | (uint32_t)r;
 }
 
+static inline int16_t abs16(int16_t x) {
+	return (x < 0) ? (int16_t)-x : x;
+}
+
 static inline void draw_line(DrawingPrimitive line) {
-	Vertex v1 = line.vertex[0];
-	Vertex v2 = line.vertex[1];
-	uint32_t c1 = line.color[0];
-	uint32_t c2 = line.color[1];
+	Vertex   v0 = line.vertex[0];
+	Vertex   v1 = line.vertex[1];
+	uint32_t c0 = line.color[0];
+	uint32_t c1 = line.color[1];
 	bool semitrans = line.semitrans;
 	bool dithering = gpu.dithering_enabled;
 
+	Vertex delta = { .x = v1.x - v0.x, .y = v1.y - v0.y };
+	int16_t step = (abs16(delta.x) > abs16(delta.y)) ? abs16(delta.x) : abs16(delta.y);
+
 	// Degenerate case
-	if (v1.x == v2.x && v1.y == v2.y)
-		return;
-
-	// Vertical line case
-	if (v1.x == v2.x) {
-		if (v2.y < v1.y) {
-			uint32_t temp_c = c1;
-			c1 = c2;
-			c2 = temp_c;
-			Vertex temp_v = v1;
-			v1 = v2;
-			v2 = temp_v;
-		}
-
-		for (int16_t y = v1.y; y <= v2.y; y++) {
-			float a1 = (float)(y - v1.y) / (float)(v2.y - v1.y);
-			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
-			if (dithering) c = apply_dither32(v1.x, y, c);
-			gpu_put_pixel(&gpu.vram[y][v1.x], c, semitrans);
-		}
+	if (step == 0) {
+		if (dithering) c0 = apply_dither32(v0.x, v0.y, c0);
+		gpu_put_pixel(&gpu.vram[v0.y][v0.x], c0, semitrans);
 		return;
 	}
 
-	float slope = (float)(v2.y - v1.y) / (float)(v2.x - v1.x);
-	float intercept = (float)v1.y - slope * (float)v1.x;
-	if (slope <= 1 && slope >= -1) {
-		// Swap so that v1.x is always less than v2.x
-		if (v2.x < v1.x) {
-			uint32_t temp_c = c1;
-			c1 = c2;
-			c2 = temp_c;
-			Vertex temp_v = v1;
-			v1 = v2;
-			v2 = temp_v;
-		}
-		for (int16_t x = v1.x; x <= v2.x; x++) {
-			int16_t y = (int16_t)roundf(slope * x + intercept);
-			float a1 = (float)(x - v1.x) / (float)(v2.x - v1.x);
-			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
-			if (dithering) c = apply_dither32(x, y, c);
-			gpu_put_pixel(&gpu.vram[y][x], c, semitrans);
-		}
-	} else {
-		// Swap so that v1.y is always less than v2.y
-		if (v2.y < v1.y) {
-			uint32_t temp_c = c1;
-			c1 = c2;
-			c2 = temp_c;
-			Vertex temp_v = v1;
-			v1 = v2;
-			v2 = temp_v;
-		}
-		for (int16_t y = v1.y; y <= v2.y; y++) {
-			int16_t x = (int16_t)roundf((y - intercept) / slope);
-			float a1 = (float)(y - v1.y) / (float)(v2.y - v1.y);
-			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
-			if (dithering) c = apply_dither32(x, y, c);
-			gpu_put_pixel(&gpu.vram[y][x], c, semitrans);
-		}
+	float step_x = (float)delta.x / (float)step;
+	float step_y = (float)delta.y / (float)step;
+	float step_c = 1.0f / (float)step;
+	for (int i = 0; i <= step; i++) {
+		int16_t x = (int16_t)((float)v0.x + (float)i * step_x + 0.5f);
+		int16_t y = (int16_t)((float)v0.y + (float)i * step_y + 0.5f);
+		uint32_t c = interpolate_color32(c0, c1, (float)i * step_c);
+		if (dithering) c = apply_dither32(x, y, c);
+		gpu_put_pixel(&gpu.vram[y][x], c, semitrans);
 	}
 }
 

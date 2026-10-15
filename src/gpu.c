@@ -10,37 +10,6 @@
 enum GPUCommand {
 	NO_COMMAND            = 0x00, // 0000 0000
 	FILL_RECTANGLE        = 0x02, // 0000 0010
-
-	POLY_MONO_OPAQUE      = 0x20, // 0010 0000
-	POLY_MONO_SEMITRANS   = 0x22, // 0010 0010
-	QUAD_MONO_OPAQUE      = 0x28, // 0010 1000
-	QUAD_MONO_SEMITRANS   = 0x2A, // 0010 1010
-	QUAD_TEXTURED_OPAQUE_BLENDED = 0x2C, // 0010 1100
-	POLY_SHADED_OPAQUE    = 0x30, // 0011 0000
-	POLY_SHADED_SEMITRANS = 0x32, // 0011 0010
-	QUAD_SHADED_OPAQUE    = 0x38, // 0011 1000
-	QUAD_SHADED_SEMITRANS = 0x3A, // 0011 1010
-
-	LINE_MONO_OPAQUE      = 0x40, // 0010 0000
-	LINE_MONO_SEMITRANS   = 0x42, // 0010 0010
-	POLYLINE_MONO_OPAQUE  = 0x48, // 0010 1000
-	POLYLINE_MONO_SEMITRANS = 0x4A, // 0010 1010
-	LINE_SHADED_OPAQUE    = 0x50, // 0011 0000
-	LINE_SHADED_SEMITRANS = 0x52, // 0011 0010
-	POLYLINE_SHADED_OPAQUE  = 0x58, // 0010 1000
-	POLYLINE_SHADED_SEMITRANS = 0x5A, // 0010 1010
-
-	RECT_MONO_OPAQUE      = 0x60, // 0110 0000
-	RECT_MONO_SEMITRANS   = 0x62, // 0110 0010
-	DOT_MONO_OPAQUE       = 0x68, // 0110 1000
-	DOT_MONO_SEMITRANS    = 0x6A, // 0110 1010
-	RECT8_MONO_OPAQUE     = 0x70, // 0111 0000
-	RECT8_MONO_SEMITRANS  = 0x72, // 0111 0010
-	RECT16_MONO_OPAQUE    = 0x78, // 0111 1000
-	RECT16_MONO_SEMITRANS = 0x7A, // 0111 1010
-
-	VRAM_TO_VRAM_COPY     = 0x80, // 1000 0000
-	CPU_TO_VRAM_COPY      = 0xA0, // 1010 0000
 	SET_DRAWING_SETTINGS  = 0xE1, // 1110 0001
 	SET_DRAWING_AREA_BEG  = 0xE3, // 1110 0011
 	SET_DRAWING_AREA_END  = 0xE4, // 1110 0100
@@ -186,189 +155,143 @@ static inline Vertex read_vertex(uint32_t word) {
 	};
 }
 
-void draw_monochrome_rectangle(DrawingPrimitive rectangle);
+static inline void draw_rectangle(DrawingPrimitive rectangle);
 static inline void draw_triangle(DrawingPrimitive triangle);
 static inline void draw_line(DrawingPrimitive line);
 
-static void gpu_draw_poly_mono(bool semitrans) {
-	uint32_t c = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex v1 = read_vertex(gpu.word_buffer[1]);
-	Vertex v2 = read_vertex(gpu.word_buffer[2]);
-	Vertex v3 = read_vertex(gpu.word_buffer[3]);
-	DrawingPrimitive triangle = {
-		.type = POLY,
-		.vertex = { v1, v2, v3 },
-		.color  = { c, c, c },
-		.semitrans = semitrans,
+static DrawingPrimitive gpu_parse_polygon_command(uint32_t command, uint32_t *arguments) {
+	DrawingPrimitive polygon = {
+		.type      = ((command >> 27) & 1u) ? QUAD : POLY,
+		.color     = { arguments[0] & 0x00FFFFFF },
+		.vertex    = { read_vertex(arguments[1]) },
+		.shaded    = (command >> 28) & 1u,
+		.textured  = (command >> 26) & 1u,
+		.semitrans = (command >> 25) & 1u,
+		.raw_texture = (command >> 24) & 1u,
 	};
-	draw_triangle(triangle);
-}
-
-static void gpu_draw_poly_shaded(bool semitrans) {
-	uint32_t c1 = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex   v1 = read_vertex(gpu.word_buffer[1]);
-	uint32_t c2 = gpu.word_buffer[2] & 0x00FFFFFF;
-	Vertex   v2 = read_vertex(gpu.word_buffer[3]);
-	uint32_t c3 = gpu.word_buffer[4] & 0x00FFFFFF;
-	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
-	DrawingPrimitive triangle = {
-		.type = POLY,
-		.vertex = { v1, v2, v3 },
-		.color  = { c1, c2, c3 },
-		.shaded = true,
-		.semitrans = semitrans,
-	};
-	draw_triangle(triangle);
-}
-
-static void gpu_draw_quad_mono(bool semitrans) {
-	uint32_t c = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex v1 = read_vertex(gpu.word_buffer[1]);
-	Vertex v2 = read_vertex(gpu.word_buffer[2]);
-	Vertex v3 = read_vertex(gpu.word_buffer[3]);
-	Vertex v4 = read_vertex(gpu.word_buffer[4]);
-	DrawingPrimitive triangle1 = {
-		.type = POLY,
-		.vertex = { v1, v2, v3 },
-		.color  = { c, c, c },
-		.semitrans = semitrans,
-	};
-	DrawingPrimitive triangle2 = {
-		.type = POLY,
-		.vertex = { v2, v3, v4 },
-		.color  = { c, c, c },
-		.semitrans = semitrans,
-	};
-	draw_triangle(triangle1);
-	draw_triangle(triangle2);
-}
-
-static void gpu_draw_quad_shaded(bool semitrans) {
-	uint32_t c1 = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex   v1 = read_vertex(gpu.word_buffer[1]);
-	uint32_t c2 = gpu.word_buffer[2] & 0x00FFFFFF;
-	Vertex   v2 = read_vertex(gpu.word_buffer[3]);
-	uint32_t c3 = gpu.word_buffer[4] & 0x00FFFFFF;
-	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
-	uint32_t c4 = gpu.word_buffer[6] & 0x00FFFFFF;
-	Vertex   v4 = read_vertex(gpu.word_buffer[7]);
-	DrawingPrimitive triangle1 = {
-		.type = POLY,
-		.vertex = { v1, v2, v3 },
-		.color  = { c1, c2, c3 },
-		.shaded = true,
-		.semitrans = semitrans,
-	};
-	DrawingPrimitive triangle2 = {
-		.type = POLY,
-		.vertex = { v2, v3, v4 },
-		.color  = { c2, c3, c4 },
-		.shaded = true,
-		.semitrans = semitrans,
-	};
-	draw_triangle(triangle1);
-	draw_triangle(triangle2);
-}
-
-static void gpu_draw_quad_textured_blended(bool semitrans) {
-	uint32_t c  = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex   v1 = read_vertex(gpu.word_buffer[1]);
-	Vertex   v2 = read_vertex(gpu.word_buffer[3]);
-	Vertex   v3 = read_vertex(gpu.word_buffer[5]);
-	Vertex   v4 = read_vertex(gpu.word_buffer[7]);
-	DrawingPrimitive triangle1 = {
-		.type = POLY,
-		.vertex = { v1, v2, v3 },
-		.color  = { c, c, c },
-		.semitrans = semitrans,
-	};
-	DrawingPrimitive triangle2 = {
-		.type = POLY,
-		.vertex = { v2, v3, v4 },
-		.color  = { c, c, c },
-		.semitrans = semitrans,
-	};
-	draw_triangle(triangle1);
-	draw_triangle(triangle2);
-}
-
-static void gpu_draw_rect_mono(int16_t fixed_size, bool semitrans) {
-	uint32_t c = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex pos = read_vertex(gpu.word_buffer[1]);
-	Vertex size = (Vertex){ .x = fixed_size, .y = fixed_size };
-	if (fixed_size == 0) {
-		size = read_vertex(gpu.word_buffer[2]);
+	polygon.color[1] = polygon.color[0];
+	polygon.color[2] = polygon.color[0];
+	polygon.color[3] = polygon.color[0];
+	if (polygon.textured) {
+		printf("[WARNING] Textured polygons are not implemented");
 	}
+	int j = 2;
+	for (int i = 1; i < ((polygon.type == QUAD) ? 4 : 3); i++) {
+		if (polygon.shaded) {
+			polygon.color[i] = arguments[j++] & 0x00FFFFFF;
+		}
+		polygon.vertex[i] = read_vertex(arguments[j++]);
+	}
+	return polygon;
+}
+
+static DrawingPrimitive gpu_parse_line_command(uint32_t command, uint32_t *arguments) {
+	DrawingPrimitive line = {
+		.type      = ((command >> 27) & 1u) ? POLYLINE : LINE,
+		.color     = { arguments[0] & 0x00FFFFFF },
+		.vertex    = { read_vertex(arguments[1]) },
+		.shaded    = (command >> 28) & 1u,
+		.semitrans = (command >> 25) & 1u,
+	};
+	if (line.shaded) {
+		line.color[1]  = arguments[2] & 0x00FFFFFF;
+		line.vertex[1] = read_vertex(arguments[3]);
+	} else {
+		line.color[1]  = line.color[0];
+		line.vertex[1] = read_vertex(arguments[2]);
+	}
+	return line;
+}
+
+static DrawingPrimitive gpu_parse_rectangle_command(uint32_t command, uint32_t *arguments) {
+	static const Vertex rectangle_size[4] = {
+		{ .x = 0,  .y = 0  },
+		{ .x = 1,  .y = 1  },
+		{ .x = 8,  .y = 8  },
+		{ .x = 16, .y = 16 },
+	};
 	DrawingPrimitive rectangle = {
-		.type   = RECT,
-		.color  = { c },
-		.vertex = { pos },
-		.size   = size,
-		.semitrans = semitrans,
+		.type      = RECT,
+		.color     = { arguments[0] & 0x00FFFFFF },
+		.vertex    = { read_vertex(arguments[1]) },
+		.textured  = (command >> 26) & 1u,
+		.semitrans = (command >> 25) & 1u,
+		.raw_texture = (command >> 24) & 1u,
+		.size = rectangle_size[(command >> 27) & 3u],
 	};
-	draw_monochrome_rectangle(rectangle);
+	int i = 2;
+	if (rectangle.textured) {
+		printf("[WARNING] Textured rectangles are not implemented");
+		i++;
+	}
+	if (rectangle.size.x == 0) {
+		rectangle.size = read_vertex(arguments[i++]);
+	}
+	return rectangle;
 }
 
-static void gpu_draw_line_mono(bool semitrans) {
-	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex start = read_vertex(gpu.word_buffer[1]);
-	Vertex end   = read_vertex(gpu.word_buffer[2]);
-	DrawingPrimitive line = {
-		.type = LINE,
-		.vertex = { start, end },
-		.color = { color, color },
-		.semitrans = semitrans,
-	};
-	draw_line(line);
-}
+static void gpu_execute_command(uint32_t command) {
+	switch (command >> 29) {
+	case 0:
+		break; // Misc commands (handled later)
+	case 1: { // Draw polygon
+		DrawingPrimitive polygon = gpu_parse_polygon_command(command, gpu.word_buffer);
+		if (polygon.type == QUAD) {
+			draw_triangle(polygon);
+			polygon.color[0] = polygon.color[1];
+			polygon.color[1] = polygon.color[2];
+			polygon.color[2] = polygon.color[3];
+			polygon.vertex[0] = polygon.vertex[1];
+			polygon.vertex[1] = polygon.vertex[2];
+			polygon.vertex[2] = polygon.vertex[3];
+			draw_triangle(polygon);
+		} else {
+			draw_triangle(polygon);
+		}
+		return;
+	}
+	case 2: { // Draw line
+		DrawingPrimitive line = gpu_parse_line_command(command, gpu.word_buffer);
+		if (line.type == POLYLINE) {
+			gpu.current_drawing = line;
+		}
+		draw_line(line);
+		return;
+	}
+	case 3: { // Draw Rectangle
+		DrawingPrimitive rectangle = gpu_parse_rectangle_command(command, gpu.word_buffer);
+		draw_rectangle(rectangle);
+		return;
+	}
+	case 4: { // VRAM-to-VRAM copy
+		Vertex src  = read_vertex(gpu.word_buffer[1]);
+		Vertex dest = read_vertex(gpu.word_buffer[2]);
+		Vertex size = read_vertex(gpu.word_buffer[3]);
+		if (size.x == 0) size.x = 0x400;
+		if (size.y == 0) size.y = 0x200;
+		for (int y = 0; y < size.y; y++)
+		for (int x = 0; x < size.x; x++) {
+			gpu.vram[dest.y + y][dest.x + x] = gpu.vram[src.y + y][src.x + x];
+		}
+		return;
+	}
+	case 5: { // CPU-to-VRAM copy
+		gpu.cpu_to_vram_copy_mode = true;
+		gpu.copy_start   = read_vertex(gpu.word_buffer[1]);
+		gpu.copy_current = gpu.copy_start;
+		Vertex size      = read_vertex(gpu.word_buffer[2]);
+		if (size.x == 0) size.x = 0x400;
+		if (size.y == 0) size.y = 0x200;
+		gpu.copy_end = (Vertex){ gpu.copy_start.x + size.x, gpu.copy_start.y + size.y };
+		return;
+	}
+	case 6: { // VRAM-to-CPU copy
+		return;
+	}
+	case 7: // Environment commands (handled later)
+		break;
+	}
 
-static void gpu_draw_line_shaded(bool semitrans) {
-	uint32_t color1 = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex start = read_vertex(gpu.word_buffer[1]);
-	uint32_t color2 = gpu.word_buffer[2] & 0x00FFFFFF;
-	Vertex end = read_vertex(gpu.word_buffer[3]);
-	DrawingPrimitive line = {
-		.type = LINE,
-		.vertex = { start, end },
-		.color = { color1, color2 },
-		.shaded = true,
-		.semitrans = semitrans,
-	};
-	draw_line(line);
-}
-
-static void gpu_draw_polyline_mono(bool semitrans) {
-	uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex start = read_vertex(gpu.word_buffer[1]);
-	Vertex end   = read_vertex(gpu.word_buffer[2]);
-	DrawingPrimitive line = {
-		.type   = POLYLINE,
-		.vertex = { start, end },
-		.color  = { color, color },
-		.semitrans = semitrans,
-	};
-	gpu.current_drawing = line;
-	draw_line(line);
-}
-
-static void gpu_draw_polyline_shaded(bool semitrans) {
-	uint32_t color1 = gpu.word_buffer[0] & 0x00FFFFFF;
-	Vertex start = read_vertex(gpu.word_buffer[1]);
-	uint32_t color2 = gpu.word_buffer[2] & 0x00FFFFFF;
-	Vertex end   = read_vertex(gpu.word_buffer[3]);
-	DrawingPrimitive line = {
-		.type   = POLYLINE,
-		.vertex = { start, end },
-		.color  = { color1, color2 },
-		.semitrans = semitrans,
-		.shaded = true,
-	};
-	gpu.current_drawing = line;
-	draw_line(line);
-}
-
-static void gpu_execute_command(void) {
-	bool semitrans = gpu.word_buffer[0] & (1u << 25);
 	switch (gpu.command) {
 	case NO_COMMAND: break;
 	case FILL_RECTANGLE: {
@@ -386,66 +309,6 @@ static void gpu_execute_command(void) {
 			gpu.vram[y][x] = color16;
 		break;
 	}
-	case POLY_MONO_OPAQUE: case POLY_MONO_SEMITRANS:
-		gpu_draw_poly_mono(semitrans);
-		break;
-	case QUAD_MONO_OPAQUE: case QUAD_MONO_SEMITRANS:
-		gpu_draw_quad_mono(semitrans);
-		break;
-	case POLY_SHADED_OPAQUE: case POLY_SHADED_SEMITRANS:
-		gpu_draw_poly_shaded(semitrans);
-		break;
-	case QUAD_SHADED_OPAQUE: case QUAD_SHADED_SEMITRANS:
-		gpu_draw_quad_shaded(semitrans);
-		break;
-	case QUAD_TEXTURED_OPAQUE_BLENDED:
-		gpu_draw_quad_textured_blended(semitrans);
-		break;
-	case LINE_MONO_OPAQUE: case LINE_MONO_SEMITRANS:
-		gpu_draw_line_mono(semitrans);
-		break;
-	case POLYLINE_MONO_OPAQUE: case POLYLINE_MONO_SEMITRANS:
-		gpu_draw_polyline_mono(semitrans);
-		break;
-	case POLYLINE_SHADED_OPAQUE: case POLYLINE_SHADED_SEMITRANS:
-		gpu_draw_polyline_shaded(semitrans);
-		break;
-	case LINE_SHADED_OPAQUE: case LINE_SHADED_SEMITRANS:
-		gpu_draw_line_shaded(semitrans);
-		break;
-	case RECT_MONO_OPAQUE: case RECT_MONO_SEMITRANS:
-		gpu_draw_rect_mono(0, semitrans);
-		break;
-	case DOT_MONO_OPAQUE: case DOT_MONO_SEMITRANS:
-		gpu_draw_rect_mono(1, semitrans);
-		break;
-	case RECT8_MONO_OPAQUE: case RECT8_MONO_SEMITRANS:
-		gpu_draw_rect_mono(8, semitrans);
-		break;
-	case RECT16_MONO_OPAQUE: case RECT16_MONO_SEMITRANS:
-		gpu_draw_rect_mono(16, semitrans);
-		break;
-	case VRAM_TO_VRAM_COPY: {
-		Vertex src  = read_vertex(gpu.word_buffer[1]);
-		Vertex dest = read_vertex(gpu.word_buffer[2]);
-		Vertex size = read_vertex(gpu.word_buffer[3]);
-		if (size.x == 0) size.x = 0x400;
-		if (size.y == 0) size.y = 0x200;
-		for (int y = 0; y < size.y; y++)
-			for (int x = 0; x < size.x; x++) {
-				gpu.vram[dest.y + y][dest.x + x] = gpu.vram[src.y + y][src.x + x];
-			}
-		break;
-	}
-	case CPU_TO_VRAM_COPY:
-		gpu.cpu_to_vram_copy_mode = true;
-		gpu.copy_start   = read_vertex(gpu.word_buffer[1]);
-		gpu.copy_current = gpu.copy_start;
-		Vertex size      = read_vertex(gpu.word_buffer[2]);
-		if (size.x == 0) size.x = 0x400;
-		if (size.y == 0) size.y = 0x200;
-		gpu.copy_end = (Vertex){ gpu.copy_start.x + size.x, gpu.copy_start.y + size.y };
-		break;
 	case SET_DRAWING_SETTINGS:
 		gpu.dithering_enabled = (gpu.word_buffer[0]) & (1u << 9);
 		break;
@@ -560,7 +423,7 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	gpu.remaining_words--;
 
 	if (gpu.remaining_words == 0) {
-		gpu_execute_command();
+		gpu_execute_command(gpu.word_buffer[0]);
 		gpu.command = NO_COMMAND;
 		gpu.remaining_words = 0;
 		gpu.current_word = 0;
@@ -642,7 +505,7 @@ static inline void clamp_to_drawing_area(Vertex *v) {
 	else if (v->y > gpu.drawing_area_end.y) v->y = gpu.drawing_area_end.y;
 }
 
-void draw_monochrome_rectangle(DrawingPrimitive rectangle) {
+static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	// Clamp to the dimensions of the canvas
 	uint32_t color = rectangle.color[0];
 	bool semitrans = rectangle.semitrans;

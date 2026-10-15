@@ -4,7 +4,7 @@ CFLAGS = -O2 -std=c99 -pedantic-errors -Wall -Wextra -Wconversion \
          -Wshadow -Wstrict-prototypes -Wmissing-prototypes
 DEBUG_CFLAGS = $(CFLAGS) -O1 -g -fsanitize=address,undefined \
                -fno-sanitize-recover=undefined
-LFLAGS = $(shell pkg-config --libs sdl3)
+LFLAGS = $(shell pkg-config --libs sdl3) -lm
 INCLUDES = -I src $(shell pkg-config --cflags sdl3)
 
 BIN_DIR    = bin
@@ -22,7 +22,7 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.c
 $(BIN_DIR)/$(TARGET): $(OBJECTS)
 	@printf %s "Linking together the final executable..."
 	@mkdir -p $(@D)
-	@$(CC) $(CFLAGS) $(LFLAGS) $^ -o $@ >/dev/null
+	@$(CC) $(CFLAGS) $^ $(LFLAGS) -o $@ >/dev/null
 	@echo successful!
 	@echo $(BIN_DIR)/$(TARGET) was successfully created!
 

@@ -559,6 +559,7 @@ static inline void draw_line(DrawingPrimitive line) {
 	uint32_t c1 = line.color[0];
 	uint32_t c2 = line.color[1];
 	bool semitrans = line.semitrans;
+	bool dithering = gpu.dithering_enabled;
 
 	// Degenerate case
 	if (v1.x == v2.x && v1.y == v2.y)
@@ -578,6 +579,7 @@ static inline void draw_line(DrawingPrimitive line) {
 		for (int16_t y = v1.y; y <= v2.y; y++) {
 			float a1 = (float)(y - v1.y) / (float)(v2.y - v1.y);
 			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
+			if (dithering) c = apply_dither32(v1.x, y, c);
 			gpu.vram[y][v1.x] = color32to16(c);
 		}
 		return;
@@ -598,8 +600,9 @@ static inline void draw_line(DrawingPrimitive line) {
 		for (int16_t x = v1.x; x <= v2.x; x++) {
 			int16_t y = (int16_t)roundf(slope * x + intercept);
 			float a1 = (float)(x - v1.x) / (float)(v2.x - v1.x);
-			uint32_t color = blend_line32(c2, c1, a1, 1.0f - a1);
-			gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
+			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
+			if (dithering) c = apply_dither32(x, y, c);
+			gpu_put_pixel(&gpu.vram[y][x], c, semitrans);
 		}
 	} else {
 		// Swap so that v1.y is always less than v2.y
@@ -614,8 +617,9 @@ static inline void draw_line(DrawingPrimitive line) {
 		for (int16_t y = v1.y; y <= v2.y; y++) {
 			int16_t x = (int16_t)roundf((y - intercept) / slope);
 			float a1 = (float)(y - v1.y) / (float)(v2.y - v1.y);
-			uint32_t color = blend_line32(c2, c1, a1, 1.0f - a1);
-			gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
+			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
+			if (dithering) c = apply_dither32(x, y, c);
+			gpu_put_pixel(&gpu.vram[y][x], c, semitrans);
 		}
 	}
 }
@@ -629,6 +633,7 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 	uint32_t c2 = triangle.color[2];
 	bool shaded = triangle.shaded;
 	bool semitrans = triangle.semitrans;
+	bool dithering = gpu.dithering_enabled && triangle.shaded;
 
 	// Computes the area of the triangle times 2 (used for shading)
 	int double_area = vec2_cross(
@@ -711,7 +716,7 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 					float a1 = (float)w2 / (float)double_area;
 					float a2 = (float)w0 / (float)double_area;
 					color = blend_triangle32(c0, c1, c2, a0, a1, a2);
-					if (gpu.dithering_enabled)
+					if (dithering)
 						color = apply_dither32(x, y, color);
 				} else {
 					color = c0;

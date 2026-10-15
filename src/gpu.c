@@ -583,7 +583,7 @@ static inline void draw_line(DrawingPrimitive line) {
 			float a1 = (float)(y - v1.y) / (float)(v2.y - v1.y);
 			uint32_t c = blend_line32(c2, c1, a1, 1.0f - a1);
 			if (dithering) c = apply_dither32(v1.x, y, c);
-			gpu.vram[y][v1.x] = color32to16(c);
+			gpu_put_pixel(&gpu.vram[y][v1.x], c, semitrans);
 		}
 		return;
 	}

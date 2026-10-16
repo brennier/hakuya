@@ -40,9 +40,10 @@ typedef struct {
 	} type;
 	Vertex vertex[4];
 	Vertex uv[4];
+	Vertex clut;
 	Vertex size;
 	uint32_t color[4];
-	uint16_t clut, texpage;
+	uint16_t texpage;
 	bool shaded, textured, semitrans, raw_texture;
 	bool unfinished_polyline;
 } DrawingPrimitive;
@@ -55,6 +56,8 @@ struct HakuyaGPU {
 	Rectangle display_area;
 	Vertex drawing_area_beg;
 	Vertex drawing_area_end;
+
+	uint32_t draw_mode_settings;
 	bool dithering_enabled;
 
 	bool cpu_to_vram_copy_mode;
@@ -160,6 +163,28 @@ static inline Vertex read_vertex(uint32_t word) {
 	};
 }
 
+static inline uint32_t read_color(uint32_t word) {
+	return word & 0x00FFFFFF;
+}
+
+static inline uint16_t read_texpage(uint32_t word) {
+	return (uint16_t)word;
+}
+
+static inline Vertex read_texcoord(uint32_t word) {
+	return (Vertex){
+		.x = (word >> 0) & 0xFF,
+		.y = (word >> 8) & 0xFF,
+	};
+}
+
+static inline Vertex read_clut(uint32_t word) {
+	return (Vertex){
+		.x = (word & 0x3F) << 4,
+		.y = (word >> 6) & 0x1FF,
+	};
+}
+
 static inline void draw_rectangle(DrawingPrimitive rectangle);
 static inline void draw_triangle(DrawingPrimitive triangle);
 static inline void draw_line(DrawingPrimitive line);
@@ -230,8 +255,10 @@ static DrawingPrimitive gpu_parse_rectangle_command(uint32_t command, uint32_t *
 	};
 	int i = 2;
 	if (rectangle.textured) {
-		printf("[WARNING] Textured rectangles are not implemented");
-		rectangle.uv[0] = read_vertex(arguments[i++]);
+		rectangle.uv[0]   = read_texcoord(arguments[i]);
+		rectangle.clut    = read_clut(arguments[i]);
+		rectangle.texpage = read_texpage(gpu.draw_mode_settings);
+		i++;
 	}
 	if (rectangle.size.x == 0) {
 		rectangle.size = read_vertex(arguments[i++]);
@@ -320,6 +347,7 @@ static void gpu_execute_command(uint32_t command) {
 		break;
 	}
 	case SET_DRAWING_SETTINGS:
+		gpu.draw_mode_settings = gpu.word_buffer[0];
 		gpu.dithering_enabled = (gpu.word_buffer[0]) & (1u << 9);
 		break;
 	case SET_DRAWING_AREA_BEG:
@@ -517,17 +545,42 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	// Clamp to the dimensions of the canvas
 	uint32_t color = rectangle.color[0];
 	bool semitrans = rectangle.semitrans;
-	Vertex pos = rectangle.vertex[0];
+	Vertex pos  = rectangle.vertex[0];
+	Vertex size = rectangle.size;
 	Vertex end = (Vertex){
-		.x = pos.x + rectangle.size.x,
-		.y = pos.y + rectangle.size.y,
+		.x = pos.x + size.x,
+		.y = pos.y + size.y,
 	};
 	clamp_to_drawing_area(&pos);
 	clamp_to_drawing_area(&end);
 
-	for (int y = pos.y; y < end.y; y++)
-	for (int x = pos.x; x < end.x; x++)
-		gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
+	if (!rectangle.textured) {
+		for (int y = pos.y; y < end.y; y++)
+		for (int x = pos.x; x < end.x; x++)
+			gpu_put_pixel(&gpu.vram[y][x], color, semitrans);
+		return;
+	}
+
+	Vertex texpage_coord = (Vertex){
+		.x = (rectangle.texpage & 0xFF) << 6,
+		.y = (rectangle.texpage & 0x10) << 4,
+	};
+
+	Vertex tex_coord = (Vertex){
+		.x = texpage_coord.x + rectangle.uv[0].x,
+		.y = texpage_coord.y + rectangle.uv[0].y,
+	};
+
+	for (int y = 0; y < size.y; y++)
+	for (int x = 0; x < size.x; x++) {
+		uint16_t tex_color = gpu.vram[tex_coord.y + y][tex_coord.x + x];
+		uint16_t *pixel = &gpu.vram[pos.y + y][pos.x + x];
+		if (semitrans) {
+			*pixel = blend_average16(tex_color, *pixel);
+		} else {
+			*pixel = tex_color;
+		}
+	}
 }
 
 static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {

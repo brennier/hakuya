@@ -32,7 +32,7 @@ run: $(BIN_DIR)/$(TARGET)
 	./$(BIN_DIR)/$(TARGET)
 
 test: $(BIN_DIR)/$(TARGET)
-	./$(BIN_DIR)/$(TARGET) -b bios/SCPH1001.BIN -e exe/RenderLine16BPP.exe
+	./$(BIN_DIR)/$(TARGET) -b bios/SCPH1001.BIN -e exe/RenderTextureRectangle15BPP.exe
 
 clean:
 	@echo Cleaning up build files and executables...

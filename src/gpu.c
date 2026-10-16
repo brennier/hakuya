@@ -541,6 +541,25 @@ static inline void clamp_to_drawing_area(Vertex *v) {
 	else if (v->y > gpu.drawing_area_end.y) v->y = gpu.drawing_area_end.y;
 }
 
+static inline uint16_t blend_texture(uint16_t tex_color, uint32_t shade_color) {
+	uint8_t tex_r = (tex_color >>  0) & 0x1Fu;
+	uint8_t tex_g = (tex_color >>  5) & 0x1Fu;
+	uint8_t tex_b = (tex_color >> 10) & 0x1Fu;
+
+	float shade_r = (float)((shade_color >>  0) & 0xFFu) / 128.0f;
+	float shade_g = (float)((shade_color >>  8) & 0xFFu) / 128.0f;
+	float shade_b = (float)((shade_color >> 16) & 0xFFu) / 128.0f;
+
+	uint16_t r = tex_r * shade_r;
+	uint16_t g = tex_g * shade_g;
+	uint16_t b = tex_b * shade_b;
+
+	if (r > 255) r = 255;
+	if (g > 255) g = 255;
+	if (b > 255) b = 255;
+	return (tex_color & 0x8000u) | (b << 10) | (g << 5) | (r << 0);
+}
+
 static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	// Clamp to the dimensions of the canvas
 	uint32_t color = rectangle.color[0];
@@ -571,9 +590,20 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 		.y = texpage_coord.y + rectangle.uv[0].y,
 	};
 
+	bool x_flip = (rectangle.texpage >> 12) & 1u;
+	bool y_flip = (rectangle.texpage >> 13) & 1u;
+	int  x_dir = x_flip ? -1 : 1;
+	int  y_dir = y_flip ? -1 : 1;
+
 	for (int y = 0; y < size.y; y++)
 	for (int x = 0; x < size.x; x++) {
-		uint16_t tex_color = gpu.vram[tex_coord.y + y][tex_coord.x + x];
+		uint16_t tex_color = gpu.vram[tex_coord.y + y_dir * y][tex_coord.x + x_dir * x];
+		if (!(tex_color & 0x8000u)) {
+			continue;
+		}
+		if (!rectangle.raw_texture) {
+			tex_color = blend_texture(tex_color, color);
+		}
 		uint16_t *pixel = &gpu.vram[pos.y + y][pos.x + x];
 		if (semitrans) {
 			*pixel = blend_average16(tex_color, *pixel);

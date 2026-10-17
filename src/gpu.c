@@ -19,6 +19,12 @@ enum MiscGPU0Command {
 };
 
 typedef struct {
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
+} Color24;
+
+typedef struct {
 	int16_t x;
 	int16_t y;
 } Vertex;
@@ -42,7 +48,7 @@ typedef struct {
 	Vertex uv[4];
 	Vertex clut;
 	Vertex size;
-	uint32_t color[4];
+	Color24 color[4];
 	uint16_t texpage;
 	bool shaded, textured, semitrans, raw_texture;
 	bool unfinished_polyline;
@@ -68,43 +74,30 @@ struct HakuyaGPU {
 	uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH];
 } gpu;
 
-static inline uint32_t blend_triangle32(uint32_t c1, uint32_t c2, uint32_t c3,
-					float a1, float a2, float a3) {
-	uint8_t c1r = (c1 >>  0) & 0xFF;
-	uint8_t c1g = (c1 >>  8) & 0xFF;
-	uint8_t c1b = (c1 >> 16) & 0xFF;
-
-	uint8_t c2r = (c2 >>  0) & 0xFF;
-	uint8_t c2g = (c2 >>  8) & 0xFF;
-	uint8_t c2b = (c2 >> 16) & 0xFF;
-
-	uint8_t c3r = (c3 >>  0) & 0xFF;
-	uint8_t c3g = (c3 >>  8) & 0xFF;
-	uint8_t c3b = (c3 >> 16) & 0xFF;
-
-	uint8_t r = (uint8_t)(c1r * a1 + c2r * a2 + c3r * a3);
-	uint8_t g = (uint8_t)(c1g * a1 + c2g * a2 + c3g * a3);
-	uint8_t b = (uint8_t)(c1b * a1 + c2b * a2 + c3b * a3);
-
-	return (uint32_t)((b << 16) | (g << 8) | r);
+static inline Color24 blend_triangle24(Color24 c1, Color24 c2, Color24 c3,
+				       float a1, float a2, float a3) {
+	Color24 result;
+	result.r = (uint8_t)(c1.r * a1 + c2.r * a2 + c3.r * a3);
+	result.g = (uint8_t)(c1.g * a1 + c2.g * a2 + c3.g * a3);
+	result.b = (uint8_t)(c1.b * a1 + c2.b * a2 + c3.b * a3);
+	return result;
 }
 
-static inline uint32_t interpolate_color32(uint32_t c1, uint32_t c2, float weight) {
-	uint8_t c1r = (c1 >>  0) & 0xFF;
-	uint8_t c1g = (c1 >>  8) & 0xFF;
-	uint8_t c1b = (c1 >> 16) & 0xFF;
-
-	uint8_t c2r = (c2 >>  0) & 0xFF;
-	uint8_t c2g = (c2 >>  8) & 0xFF;
-	uint8_t c2b = (c2 >> 16) & 0xFF;
-
+static inline Color24 interpolate_color24(Color24 c1, Color24 c2, float weight) {
 	float a2 = weight;
 	float a1 = 1.0f - weight;
-	uint8_t r = (uint8_t)(c1r * a1 + c2r * a2);
-	uint8_t g = (uint8_t)(c1g * a1 + c2g * a2);
-	uint8_t b = (uint8_t)(c1b * a1 + c2b * a2);
+	Color24 result;
+	result.r = (uint8_t)(c1.r * a1 + c2.r * a2);
+	result.g = (uint8_t)(c1.g * a1 + c2.g * a2);
+	result.b = (uint8_t)(c1.b * a1 + c2.b * a2);
+	return result;
+}
 
-	return (uint32_t)((b << 16) | (g << 8) | r);
+static inline uint16_t color24to16(Color24 c) {
+	c.r >>= 3;
+	c.g >>= 3;
+	c.b >>= 3;
+	return (c.b << 10) | (c.g << 5) | c.r;
 }
 
 // This does floor((a+b)/2)
@@ -129,12 +122,6 @@ static inline uint32_t color16to32(uint16_t c) {
 	uint32_t g  = (c32 << 6) & 0x0000F800u;
 	uint32_t result = 0xFF000000u | rb | g;
 	return result | ((result >> 5) & 0x00070707u);
-}
-
-static inline uint16_t color32to16(uint32_t c) {
-	uint32_t rb = (c & 0x00F800F8u) >> 3;
-	uint32_t g  = (c & 0x0000F800u);
-	return (uint16_t)(((rb | g) >> 6) | rb);
 }
 
 void gpu_render_vram_u32(uint32_t *output_buffer) {
@@ -163,8 +150,12 @@ static inline Vertex read_vertex(uint32_t word) {
 	};
 }
 
-static inline uint32_t read_color(uint32_t word) {
-	return word & 0x00FFFFFF;
+static inline Color24 read_color(uint32_t word) {
+	return (Color24){
+		.r = ((word >>  0) & 0xFF),
+		.g = ((word >>  8) & 0xFF),
+		.b = ((word >> 16) & 0xFF),
+	};
 }
 
 static inline uint16_t read_texpage(uint32_t word) {
@@ -192,7 +183,7 @@ static inline void draw_line(DrawingPrimitive line);
 static DrawingPrimitive gpu_parse_polygon_command(uint32_t command, uint32_t *arguments) {
 	DrawingPrimitive polygon = {
 		.type      = ((command >> 27) & 1u) ? QUAD : POLY,
-		.color     = { arguments[0] & 0x00FFFFFF },
+		.color     = { read_color(arguments[0]) },
 		.vertex    = { read_vertex(arguments[1]) },
 		.shaded    = (command >> 28) & 1u,
 		.textured  = (command >> 26) & 1u,
@@ -209,7 +200,7 @@ static DrawingPrimitive gpu_parse_polygon_command(uint32_t command, uint32_t *ar
 	}
 	for (int i = 1; i < ((polygon.type == QUAD) ? 4 : 3); i++) {
 		if (polygon.shaded) {
-			polygon.color[i] = arguments[j++] & 0x00FFFFFF;
+			polygon.color[i] = read_color(arguments[j++]);
 		}
 		polygon.vertex[i] = read_vertex(arguments[j++]);
 		if (polygon.textured) {
@@ -222,13 +213,13 @@ static DrawingPrimitive gpu_parse_polygon_command(uint32_t command, uint32_t *ar
 static DrawingPrimitive gpu_parse_line_command(uint32_t command, uint32_t *arguments) {
 	DrawingPrimitive line = {
 		.type      = ((command >> 27) & 1u) ? POLYLINE : LINE,
-		.color     = { arguments[0] & 0x00FFFFFF },
+		.color     = { read_color(arguments[0]) },
 		.vertex    = { read_vertex(arguments[1]) },
 		.shaded    = (command >> 28) & 1u,
 		.semitrans = (command >> 25) & 1u,
 	};
 	if (line.shaded) {
-		line.color[1]  = arguments[2] & 0x00FFFFFF;
+		line.color[1]  = read_color(arguments[2]);
 		line.vertex[1] = read_vertex(arguments[3]);
 	} else {
 		line.color[1]  = line.color[0];
@@ -246,7 +237,7 @@ static DrawingPrimitive gpu_parse_rectangle_command(uint32_t command, uint32_t *
 	};
 	DrawingPrimitive rectangle = {
 		.type      = RECT,
-		.color     = { arguments[0] & 0x00FFFFFF },
+		.color     = { read_color(arguments[0]) },
 		.vertex    = { read_vertex(arguments[1]) },
 		.textured  = (command >> 26) & 1u,
 		.semitrans = (command >> 25) & 1u,
@@ -332,7 +323,7 @@ static void gpu_execute_command(uint32_t command) {
 	switch (misc_command) {
 	case NO_OP: break;
 	case FILL_RECTANGLE: {
-		uint32_t color = gpu.word_buffer[0] & 0x00FFFFFF;
+		Color24 color = read_color(gpu.word_buffer[0]);
 		Vertex pos  = read_vertex(gpu.word_buffer[1]);
 		pos.x &= 0x03F0;
 		Vertex size = read_vertex(gpu.word_buffer[2]);
@@ -340,7 +331,7 @@ static void gpu_execute_command(uint32_t command) {
 		size.x &= ~0x0F;
 		Vertex end = (Vertex){ .x = pos.x + size.x, .y = pos.y + size.y };
 
-		uint16_t color16 = color32to16(color);
+		uint16_t color16 = color24to16(color);
 		for (int y = pos.y; y < end.y; y++)
 		for (int x = pos.x; x < end.x; x++)
 			gpu.vram[y][x] = color16;
@@ -415,7 +406,7 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 			gpu.current_drawing = (DrawingPrimitive){ 0 };
 		} else if (gpu.current_drawing.shaded) {
 			gpu.current_drawing.color[0] = gpu.current_drawing.color[1];
-			gpu.current_drawing.color[1] = value & 0x00FFFFFF;
+			gpu.current_drawing.color[1] = read_color(value);
 			gpu.current_drawing.unfinished_polyline = true;
 		} else {
 			gpu.current_drawing.vertex[0] = gpu.current_drawing.vertex[1];
@@ -525,11 +516,11 @@ static inline bool is_top_or_left(Vertex v1, Vertex v2) {
 	return (sub.y < 0) || (sub.y == 0 && sub.x > 0);
 }
 
-static inline void gpu_put_pixel(uint16_t *pixel, uint32_t color, bool semitrans) {
+static inline void gpu_put_pixel(uint16_t *pixel, Color24 color, bool semitrans) {
 	if (semitrans) {
-		*pixel = blend_average16(color32to16(color), *pixel);
+		*pixel = blend_average16(color24to16(color), *pixel);
 	} else {
-		*pixel = color32to16(color);
+		*pixel = color24to16(color);
 	}
 }
 
@@ -541,28 +532,23 @@ static inline void clamp_to_drawing_area(Vertex *v) {
 	else if (v->y > gpu.drawing_area_end.y) v->y = gpu.drawing_area_end.y;
 }
 
-static inline uint16_t blend_texture(uint16_t tex_color, uint32_t shade_color) {
+static inline uint16_t blend_texture(uint16_t tex_color, Color24 shade_color) {
 	uint8_t tex_r = (tex_color >>  0) & 0x1Fu;
 	uint8_t tex_g = (tex_color >>  5) & 0x1Fu;
 	uint8_t tex_b = (tex_color >> 10) & 0x1Fu;
-
-	uint8_t shade_r = (shade_color >>  0) & 0xFFu;
-	uint8_t shade_g = (shade_color >>  8) & 0xFFu;
-	uint8_t shade_b = (shade_color >> 16) & 0xFFu;
-
-	uint16_t r = (tex_r * shade_r) >> 7;
-	uint16_t g = (tex_g * shade_g) >> 7;
-	uint16_t b = (tex_b * shade_b) >> 7;
+	uint32_t r = (uint32_t)(tex_r * shade_color.r) >> 7;
+	uint32_t g = (uint32_t)(tex_g * shade_color.g) >> 7;
+	uint32_t b = (uint32_t)(tex_b * shade_color.b) >> 7;
 
 	r = (r > 31) ? 31 : r;
 	g = (g > 31) ? 31 : g;
 	b = (b > 31) ? 31 : b;
-	return (tex_color & 0x8000u) | (b << 10) | (g << 5) | (r << 0);
+	return (uint16_t)((tex_color & 0x8000u) | (b << 10) | (g << 5) | (r << 0));
 }
 
 static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	// Clamp to the dimensions of the canvas
-	uint32_t color = rectangle.color[0];
+	Color24 color = rectangle.color[0];
 	bool semitrans = rectangle.semitrans;
 	Vertex pos  = rectangle.vertex[0];
 	Vertex size = rectangle.size;
@@ -613,7 +599,7 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	}
 }
 
-static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
+static Color24 apply_dither24(int16_t x, int16_t y, Color24 color) {
 	static const int16_t dither_pattern[4][4] = {
 		{ -4, +0, -3, +1 },
 		{ +2, -2, +3, -1 },
@@ -621,13 +607,9 @@ static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
 		{ +3, -1, +2, -2 },
 	};
 	int16_t dither_offset = dither_pattern[y & 0x03][x & 0x03];
-	int32_t r = (color >>  0) & 0xFF;
-	int32_t g = (color >>  8) & 0xFF;
-	int32_t b = (color >> 16) & 0xFF;
-
-	r += dither_offset;
-	g += dither_offset;
-	b += dither_offset;
+	int32_t r = color.r + dither_offset;
+	int32_t g = color.g + dither_offset;
+	int32_t b = color.b + dither_offset;
 
 	if (r < 0) r = 0;
 	if (g < 0) g = 0;
@@ -636,7 +618,7 @@ static uint32_t apply_dither32(int16_t x, int16_t y, uint32_t color) {
 	if (g > 255) g = 255;
 	if (b > 255) b = 255;
 
-	return ((uint32_t)b << 16) | ((uint32_t)g << 8) | (uint32_t)r;
+	return (Color24){ (uint8_t)r, (uint8_t)g, (uint8_t)b };
 }
 
 static inline int16_t abs16(int16_t x) {
@@ -644,10 +626,10 @@ static inline int16_t abs16(int16_t x) {
 }
 
 static inline void draw_line(DrawingPrimitive line) {
-	Vertex   v0 = line.vertex[0];
-	Vertex   v1 = line.vertex[1];
-	uint32_t c0 = line.color[0];
-	uint32_t c1 = line.color[1];
+	Vertex  v0 = line.vertex[0];
+	Vertex  v1 = line.vertex[1];
+	Color24 c0 = line.color[0];
+	Color24 c1 = line.color[1];
 	bool semitrans = line.semitrans;
 	bool dithering = gpu.dithering_enabled;
 
@@ -656,7 +638,7 @@ static inline void draw_line(DrawingPrimitive line) {
 
 	// Degenerate case
 	if (step == 0) {
-		if (dithering) c0 = apply_dither32(v0.x, v0.y, c0);
+		if (dithering) c0 = apply_dither24(v0.x, v0.y, c0);
 		gpu_put_pixel(&gpu.vram[v0.y][v0.x], c0, semitrans);
 		return;
 	}
@@ -667,8 +649,8 @@ static inline void draw_line(DrawingPrimitive line) {
 	for (int i = 0; i <= step; i++) {
 		int16_t x = (int16_t)((float)v0.x + (float)i * step_x + 0.5f);
 		int16_t y = (int16_t)((float)v0.y + (float)i * step_y + 0.5f);
-		uint32_t c = interpolate_color32(c0, c1, (float)i * step_c);
-		if (dithering) c = apply_dither32(x, y, c);
+		Color24 c = interpolate_color24(c0, c1, (float)i * step_c);
+		if (dithering) c = apply_dither24(x, y, c);
 		gpu_put_pixel(&gpu.vram[y][x], c, semitrans);
 	}
 }
@@ -677,9 +659,9 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 	Vertex v0 = triangle.vertex[0];
 	Vertex v1 = triangle.vertex[1];
 	Vertex v2 = triangle.vertex[2];
-	uint32_t c0 = triangle.color[0];
-	uint32_t c1 = triangle.color[1];
-	uint32_t c2 = triangle.color[2];
+	Color24 c0 = triangle.color[0];
+	Color24 c1 = triangle.color[1];
+	Color24 c2 = triangle.color[2];
 	bool shaded = triangle.shaded;
 	bool semitrans = triangle.semitrans;
 	bool dithering = gpu.dithering_enabled && triangle.shaded;
@@ -695,7 +677,7 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 		Vertex v_temp = v0;
 		v0 = v1;
 		v1 = v_temp;
-		uint32_t c_temp = c0;
+		Color24 c_temp = c0;
 		c0 = c1;
 		c1 = c_temp;
 		double_area *= -1;
@@ -758,15 +740,15 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
-				uint32_t color;
+				Color24 color;
 
 				if (shaded) {
 					float a0 = (float)w1 / (float)double_area;
 					float a1 = (float)w2 / (float)double_area;
 					float a2 = (float)w0 / (float)double_area;
-					color = blend_triangle32(c0, c1, c2, a0, a1, a2);
+					color = blend_triangle24(c0, c1, c2, a0, a1, a2);
 					if (dithering)
-						color = apply_dither32(x, y, color);
+						color = apply_dither24(x, y, color);
 				} else {
 					color = c0;
 				}

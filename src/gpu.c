@@ -49,8 +49,9 @@ typedef struct {
 	Vertex uv[4];
 	Vertex clut;
 	Vertex size;
+	Vertex texpage;
 	Color24 color[4];
-	uint16_t texpage;
+	uint16_t texpage_raw;
 	bool shaded, textured, semitrans, raw_texture;
 	bool unfinished_polyline;
 } DrawingPrimitive;
@@ -159,8 +160,11 @@ static inline Color24 read_color(uint32_t word) {
 	};
 }
 
-static inline uint16_t read_texpage(uint32_t word) {
-	return (uint16_t)word;
+static inline Vertex read_texpage(uint32_t word) {
+	return (Vertex){
+		.x = (word & 0x0F) << 6,
+		.y = (word & 0x10) << 4,
+	};
 }
 
 static inline Vertex read_texcoord(uint32_t word) {
@@ -207,6 +211,7 @@ static DrawingPrimitive gpu_parse_polygon_command(uint32_t command, uint32_t *ar
 				polygon.clut = read_clut(arguments[j]);
 			} else if (i == 1) {
 				polygon.texpage = read_texpage(arguments[j] >> 16);
+				polygon.texpage_raw = (arguments[j] >> 16);
 			}
 			j++;
 		}
@@ -253,6 +258,7 @@ static DrawingPrimitive gpu_parse_rectangle_command(uint32_t command, uint32_t *
 		rectangle.uv[0]   = read_texcoord(arguments[i]);
 		rectangle.clut    = read_clut(arguments[i]);
 		rectangle.texpage = read_texpage(gpu.draw_mode_settings);
+		rectangle.texpage_raw = gpu.draw_mode_settings & 0xFFFF;
 		i++;
 	}
 	if (rectangle.size.x == 0) {
@@ -547,6 +553,31 @@ static inline uint16_t blend_texture(uint16_t tex_color, Color24 shade_color) {
 	return (uint16_t)((tex_color & 0x8000u) | (b << 10) | (g << 5) | (r << 0));
 }
 
+static inline uint16_t get_texel(Vertex texpage, uint8_t u, uint8_t v, uint8_t bpp, const uint16_t *clut) {
+	switch (bpp) {
+	case 0: {
+		uint16_t index = gpu.vram[texpage.y + v][texpage.x + (u >> 2)];
+		index >>= 4 * (u % 4);
+		index &= 0x0F;
+		return clut[index];
+	}
+	case 1: {
+		uint16_t index = gpu.vram[texpage.y + v][texpage.x + (u >> 1)];
+		index >>= 8 * (u % 2);
+		index &= 0xFF;
+		return clut[index];
+	}
+	case 2: {
+		return gpu.vram[texpage.y + v][texpage.x + u];
+	}
+	default: {
+		fprintf(stderr, "[WARNING] Unknown bpp parameter: %d\n", bpp);
+		return gpu.vram[texpage.y + v][texpage.x + u];
+	}
+	}
+}
+
+
 static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	// Clamp to the dimensions of the canvas
 	Color24 color = rectangle.color[0];
@@ -567,14 +598,10 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 		return;
 	}
 
-	Vertex texpage_coord = (Vertex){
-		.x = (rectangle.texpage & 0x0F) << 6,
-		.y = (rectangle.texpage & 0x10) << 4,
-	};
-	bool x_flip = (rectangle.texpage >> 12) & 1u;
-	bool y_flip = (rectangle.texpage >> 13) & 1u;
-
-	uint8_t bpp = (rectangle.texpage >> 7) & 3u;
+	Vertex texpage = rectangle.texpage;
+	bool x_flip = (rectangle.texpage_raw >> 12) & 1u;
+	bool y_flip = (rectangle.texpage_raw >> 13) & 1u;
+	uint8_t bpp = (rectangle.texpage_raw >> 7) & 3u;
 	uint16_t clut[256];
 	switch (bpp) {
 	case 0: memcpy(clut, &gpu.vram[rectangle.clut.y][rectangle.clut.x], 32);  break;
@@ -590,27 +617,7 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	for (int y = 0; y < size.y; y++, v += v_dir) {
 		u = u0;
 		for (int x = 0; x < size.x; x++, u += u_dir) {
-			uint16_t tex_color = 0;
-			switch (bpp) {
-			case 0: {
-				uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 2)];
-				index >>= 4 * (u % 4);
-				index &= 0x0F;
-				tex_color = clut[index];
-				break;
-			}
-			case 1: {
-				uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 1)];
-				index >>= 8 * (u % 2);
-				index &= 0xFF;
-				tex_color = clut[index];
-				break;
-			}
-			case 2: {
-				tex_color = gpu.vram[texpage_coord.y + v][texpage_coord.x + u];
-				break;
-			}
-			}
+			uint16_t tex_color = get_texel(texpage, u, v, bpp, clut);
 			if (!(tex_color & 0x8000u)) {
 				continue;
 			}
@@ -683,37 +690,17 @@ static inline void draw_line(DrawingPrimitive line) {
 	}
 }
 
-static inline uint16_t get_texel(DrawingPrimitive triangle, float a0, float a1, float a2) {
-	Vertex texpage_coord = (Vertex){
-		.x = (triangle.texpage & 0x0F) << 6,
-		.y = (triangle.texpage & 0x10) << 4,
-	};
-	uint8_t bpp = (triangle.texpage >> 7) & 3u;
-	Vertex uv0 = triangle.uv[0];
-	Vertex uv1 = triangle.uv[1];
-	Vertex uv2 = triangle.uv[2];
+static inline uint16_t compute_tritexel(const DrawingPrimitive *triangle, float a0, float a1, float a2) {
+	uint8_t bpp = (triangle->texpage_raw >> 7) & 3u;
+	Vertex uv0 = triangle->uv[0];
+	Vertex uv1 = triangle->uv[1];
+	Vertex uv2 = triangle->uv[2];
 	int u = uv0.x * a0 + uv1.x * a1 + uv2.x * a2;
 	int v = uv0.y * a0 + uv1.y * a1 + uv2.y * a2;
 	u &= 0xFF;
 	v &= 0xFF;
-
-	switch (bpp) {
-	case 0: {
-		uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 2)];
-		index >>= 4 * (u % 4);
-		index &= 0x0F;
-		return gpu.vram[triangle.clut.y][triangle.clut.x + index];
-	}
-	case 1: {
-		uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 1)];
-		index >>= 8 * (u % 2);
-		index &= 0xFF;
-		return gpu.vram[triangle.clut.y][triangle.clut.x + index];
-	}
-	case 2: {
-		return gpu.vram[texpage_coord.y + v][texpage_coord.x + u];
-	}
-	}
+	const uint16_t *clut = &gpu.vram[triangle->clut.y][triangle->clut.x];
+	return get_texel(triangle->texpage, (uint8_t)u, (uint8_t)v, bpp, clut);
 }
 
 static inline void draw_triangle(DrawingPrimitive triangle) {
@@ -818,7 +805,7 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 				}
 				uint16_t color16;
 				if (textured) {
-					color16 = get_texel(triangle, a0, a1, a2);
+					color16 = compute_tritexel(&triangle, a0, a1, a2);
 					if (color16 == 0) {
 						transparent = true;
 					} else if (!raw_texture) {

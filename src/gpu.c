@@ -185,28 +185,30 @@ static inline void draw_line(DrawingPrimitive line);
 static DrawingPrimitive gpu_parse_polygon_command(uint32_t command, uint32_t *arguments) {
 	DrawingPrimitive polygon = {
 		.type      = ((command >> 27) & 1u) ? QUAD : POLY,
-		.color     = { read_color(arguments[0]) },
-		.vertex    = { read_vertex(arguments[1]) },
 		.shaded    = (command >> 28) & 1u,
 		.textured  = (command >> 26) & 1u,
 		.semitrans = (command >> 25) & 1u,
 		.raw_texture = (command >> 24) & 1u,
 	};
-	polygon.color[1] = polygon.color[0];
-	polygon.color[2] = polygon.color[0];
-	polygon.color[3] = polygon.color[0];
-	int j = 2;
-	if (polygon.textured) {
-		printf("[WARNING] Textured polygons are not implemented");
-		polygon.uv[0] = read_vertex(arguments[j++]);
-	}
-	for (int i = 1; i < ((polygon.type == QUAD) ? 4 : 3); i++) {
+	int j = 0;
+	for (int i = 0; i < ((polygon.type == QUAD) ? 4 : 3); i++) {
 		if (polygon.shaded) {
 			polygon.color[i] = read_color(arguments[j++]);
+		} else if (i == 0) {
+			polygon.color[i] = read_color(arguments[0]);
+			j++;
+		} else {
+			polygon.color[i] = read_color(arguments[0]);
 		}
 		polygon.vertex[i] = read_vertex(arguments[j++]);
 		if (polygon.textured) {
-			polygon.uv[i] = read_vertex(arguments[j++]);
+			polygon.uv[i] = read_texcoord(arguments[j]);
+			if (i == 0) {
+				polygon.clut = read_clut(arguments[j]);
+			} else if (i == 1) {
+				polygon.texpage = read_texpage(arguments[j] >> 16);
+			}
+			j++;
 		}
 	}
 	return polygon;
@@ -273,6 +275,9 @@ static void gpu_execute_command(uint32_t command) {
 			polygon.vertex[0] = polygon.vertex[1];
 			polygon.vertex[1] = polygon.vertex[2];
 			polygon.vertex[2] = polygon.vertex[3];
+			polygon.uv[0] = polygon.uv[1];
+			polygon.uv[1] = polygon.uv[2];
+			polygon.uv[2] = polygon.uv[3];
 			draw_triangle(polygon);
 		}
 		return;
@@ -678,6 +683,22 @@ static inline void draw_line(DrawingPrimitive line) {
 	}
 }
 
+static inline uint16_t get_texel(DrawingPrimitive triangle, float a0, float a1, float a2) {
+	Vertex texpage_coord = (Vertex){
+		.x = (triangle.texpage & 0x0F) << 6,
+		.y = (triangle.texpage & 0x10) << 4,
+	};
+	Vertex uv0 = triangle.uv[0];
+	Vertex uv1 = triangle.uv[1];
+	Vertex uv2 = triangle.uv[2];
+	int u = uv0.x * a0 + uv1.x * a1 + uv2.x * a2;
+	int v = uv0.y * a0 + uv1.y * a1 + uv2.y * a2;
+	u &= 0xFF;
+	v &= 0xFF;
+	Vertex tex_coord = { texpage_coord.x + u, texpage_coord.y + v };
+	return gpu.vram[tex_coord.y][tex_coord.x];
+}
+
 static inline void draw_triangle(DrawingPrimitive triangle) {
 	Vertex v0 = triangle.vertex[0];
 	Vertex v1 = triangle.vertex[1];
@@ -686,8 +707,11 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 	Color24 c1 = triangle.color[1];
 	Color24 c2 = triangle.color[2];
 	bool shaded = triangle.shaded;
+	bool textured = triangle.textured;
+	bool raw_texture = triangle.raw_texture;
 	bool semitrans = triangle.semitrans;
 	bool dithering = gpu.dithering_enabled && triangle.shaded;
+	bool transparent = false;
 
 	// Computes the area of the triangle times 2 (used for shading)
 	int double_area = vec2_cross(
@@ -704,6 +728,9 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 		c0 = c1;
 		c1 = c_temp;
 		double_area *= -1;
+		Vertex uv_temp = triangle.uv[0];
+		triangle.uv[0] = triangle.uv[1];
+		triangle.uv[1] = uv_temp;
 	}
 
 	// Compute the bounding box of the triangle
@@ -763,16 +790,35 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
-				Color24 color = c0;
-				if (shaded) {
-					float a0 = (float)w1 / (float)double_area;
-					float a1 = (float)w2 / (float)double_area;
-					float a2 = (float)w0 / (float)double_area;
-					color = blend_triangle24(c0, c1, c2, a0, a1, a2);
+				float a0 = (float)w1 / (float)double_area;
+				float a1 = (float)w2 / (float)double_area;
+				float a2 = (float)w0 / (float)double_area;
+				Color24 color24 = c0;
+				if (shaded && !raw_texture) {
+					color24 = blend_triangle24(c0, c1, c2, a0, a1, a2);
 					if (dithering)
-						color = apply_dither24(x, y, color);
+						color24 = apply_dither24(x, y, color24);
 				}
-				gpu_put_pixel(pixel, color, semitrans);
+				uint16_t color16;
+				if (textured) {
+					color16 = get_texel(triangle, a0, a1, a2);
+					if (color16 == 0) {
+						transparent = true;
+					} else if (!raw_texture) {
+						color16 = blend_texture(color16, color24);
+					}
+				} else {
+					color16 = color24to16(color24);
+				}
+				if (transparent) {
+					;
+				} else if (semitrans) {
+					color16 = blend_average16(color16, *pixel);
+					*pixel = color16;
+				} else {
+					*pixel = color16;
+				}
+				transparent = false;
 			} else if (reached_triangle) {
 				break;
 			}

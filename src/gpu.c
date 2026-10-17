@@ -1,6 +1,7 @@
 #include "gpu.h"
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 
 #define VRAM_WIDTH  1024
 #define VRAM_HEIGHT 512
@@ -565,48 +566,58 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 		.x = (rectangle.texpage & 0x0F) << 6,
 		.y = (rectangle.texpage & 0x10) << 4,
 	};
-	uint8_t bbp = (rectangle.texpage >> 7) & 3u;
 	bool x_flip = (rectangle.texpage >> 12) & 1u;
 	bool y_flip = (rectangle.texpage >> 13) & 1u;
-	int  x_dir = x_flip ? -1 : 1;
-	int  y_dir = y_flip ? -1 : 1;
 
-	for (int y = 0; y < size.y; y++)
-	for (int x = 0; x < size.x; x++) {
-		uint16_t tex_color = 0;
-		uint8_t u = (uint8_t)(rectangle.uv[0].x + x_dir * x);
-		uint8_t v = (uint8_t)(rectangle.uv[0].y + y_dir * y);
-		switch (bbp) {
-		case 0: {
-			uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 2)];
-			index >>= 4 * (u % 4);
-			index &= 0x0F;
-			tex_color = gpu.vram[rectangle.clut.y][rectangle.clut.x + index];
-			break;
-		}
-		case 1: {
-			uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 1)];
-			index >>= 8 * (u % 2);
-			index &= 0xFF;
-			tex_color = gpu.vram[rectangle.clut.y][rectangle.clut.x + index];
-			break;
-		}
-		case 2: {
-			tex_color = gpu.vram[texpage_coord.y + v][texpage_coord.x + u];
-			break;
-		}
-		}
-		if (!(tex_color & 0x8000u)) {
-			continue;
-		}
-		if (!rectangle.raw_texture) {
-			tex_color = blend_texture(tex_color, color);
-		}
-		uint16_t *pixel = &gpu.vram[pos.y + y][pos.x + x];
-		if (semitrans) {
-			*pixel = blend_average16(tex_color, *pixel);
-		} else {
-			*pixel = tex_color;
+	uint8_t bpp = (rectangle.texpage >> 7) & 3u;
+	uint16_t clut[256];
+	switch (bpp) {
+	case 0: memcpy(clut, &gpu.vram[rectangle.clut.y][rectangle.clut.x], 32);  break;
+	case 1: memcpy(clut, &gpu.vram[rectangle.clut.y][rectangle.clut.x], 512); break;
+	}
+
+	uint8_t u0 = (uint8_t)rectangle.uv[0].x;
+	uint8_t u = u0;
+	uint8_t v = (uint8_t)rectangle.uv[0].y;
+	uint8_t u_dir = x_flip ? (uint8_t)-1 : 1;
+	uint8_t v_dir = y_flip ? (uint8_t)-1 : 1;
+
+	for (int y = 0; y < size.y; y++, v += v_dir) {
+		u = u0;
+		for (int x = 0; x < size.x; x++, u += u_dir) {
+			uint16_t tex_color = 0;
+			switch (bpp) {
+			case 0: {
+				uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 2)];
+				index >>= 4 * (u % 4);
+				index &= 0x0F;
+				tex_color = clut[index];
+				break;
+			}
+			case 1: {
+				uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 1)];
+				index >>= 8 * (u % 2);
+				index &= 0xFF;
+				tex_color = clut[index];
+				break;
+			}
+			case 2: {
+				tex_color = gpu.vram[texpage_coord.y + v][texpage_coord.x + u];
+				break;
+			}
+			}
+			if (!(tex_color & 0x8000u)) {
+				continue;
+			}
+			if (!rectangle.raw_texture) {
+				tex_color = blend_texture(tex_color, color);
+			}
+			uint16_t *pixel = &gpu.vram[pos.y + y][pos.x + x];
+			if (semitrans) {
+				*pixel = blend_average16(tex_color, *pixel);
+			} else {
+				*pixel = tex_color;
+			}
 		}
 	}
 }

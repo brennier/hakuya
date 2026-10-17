@@ -688,6 +688,7 @@ static inline uint16_t get_texel(DrawingPrimitive triangle, float a0, float a1, 
 		.x = (triangle.texpage & 0x0F) << 6,
 		.y = (triangle.texpage & 0x10) << 4,
 	};
+	uint8_t bpp = (triangle.texpage >> 7) & 3u;
 	Vertex uv0 = triangle.uv[0];
 	Vertex uv1 = triangle.uv[1];
 	Vertex uv2 = triangle.uv[2];
@@ -695,8 +696,24 @@ static inline uint16_t get_texel(DrawingPrimitive triangle, float a0, float a1, 
 	int v = uv0.y * a0 + uv1.y * a1 + uv2.y * a2;
 	u &= 0xFF;
 	v &= 0xFF;
-	Vertex tex_coord = { texpage_coord.x + u, texpage_coord.y + v };
-	return gpu.vram[tex_coord.y][tex_coord.x];
+
+	switch (bpp) {
+	case 0: {
+		uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 2)];
+		index >>= 4 * (u % 4);
+		index &= 0x0F;
+		return gpu.vram[triangle.clut.y][triangle.clut.x + index];
+	}
+	case 1: {
+		uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 1)];
+		index >>= 8 * (u % 2);
+		index &= 0xFF;
+		return gpu.vram[triangle.clut.y][triangle.clut.x + index];
+	}
+	case 2: {
+		return gpu.vram[texpage_coord.y + v][texpage_coord.x + u];
+	}
+	}
 }
 
 static inline void draw_triangle(DrawingPrimitive triangle) {

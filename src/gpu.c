@@ -170,6 +170,7 @@ static inline Vertex read_texcoord(uint32_t word) {
 }
 
 static inline Vertex read_clut(uint32_t word) {
+	word >>= 16;
 	return (Vertex){
 		.x = (word & 0x3F) << 4,
 		.y = (word >> 6) & 0x1FF,
@@ -263,16 +264,14 @@ static void gpu_execute_command(uint32_t command) {
 		break; // Misc commands (handled later)
 	case 1: { // Draw polygon
 		DrawingPrimitive polygon = gpu_parse_polygon_command(command, gpu.word_buffer);
+		draw_triangle(polygon);
 		if (polygon.type == QUAD) {
-			draw_triangle(polygon);
 			polygon.color[0] = polygon.color[1];
 			polygon.color[1] = polygon.color[2];
 			polygon.color[2] = polygon.color[3];
 			polygon.vertex[0] = polygon.vertex[1];
 			polygon.vertex[1] = polygon.vertex[2];
 			polygon.vertex[2] = polygon.vertex[3];
-			draw_triangle(polygon);
-		} else {
 			draw_triangle(polygon);
 		}
 		return;
@@ -297,16 +296,15 @@ static void gpu_execute_command(uint32_t command) {
 		if (size.x == 0) size.x = 0x400;
 		if (size.y == 0) size.y = 0x200;
 		for (int y = 0; y < size.y; y++)
-		for (int x = 0; x < size.x; x++) {
-			gpu.vram[dest.y + y][dest.x + x] = gpu.vram[src.y + y][src.x + x];
-		}
+			for (int x = 0; x < size.x; x++)
+				gpu.vram[dest.y + y][dest.x + x] = gpu.vram[src.y + y][src.x + x];
 		return;
 	}
 	case 5: { // CPU-to-VRAM copy
 		gpu.cpu_to_vram_copy_mode = true;
-		gpu.copy_start   = read_vertex(gpu.word_buffer[1]);
+		gpu.copy_start = read_vertex(gpu.word_buffer[1]);
 		gpu.copy_current = gpu.copy_start;
-		Vertex size      = read_vertex(gpu.word_buffer[2]);
+		Vertex size = read_vertex(gpu.word_buffer[2]);
 		if (size.x == 0) size.x = 0x400;
 		if (size.y == 0) size.y = 0x200;
 		gpu.copy_end = (Vertex){ gpu.copy_start.x + size.x, gpu.copy_start.y + size.y };
@@ -323,18 +321,15 @@ static void gpu_execute_command(uint32_t command) {
 	switch (misc_command) {
 	case NO_OP: break;
 	case FILL_RECTANGLE: {
-		Color24 color = read_color(gpu.word_buffer[0]);
-		Vertex pos  = read_vertex(gpu.word_buffer[1]);
+		uint16_t color16 = color24to16(read_color(gpu.word_buffer[0]));
+		Vertex pos = read_vertex(gpu.word_buffer[1]);
 		pos.x &= 0x03F0;
 		Vertex size = read_vertex(gpu.word_buffer[2]);
 		size.x += 0x0F;
 		size.x &= ~0x0F;
-		Vertex end = (Vertex){ .x = pos.x + size.x, .y = pos.y + size.y };
-
-		uint16_t color16 = color24to16(color);
-		for (int y = pos.y; y < end.y; y++)
-		for (int x = pos.x; x < end.x; x++)
-			gpu.vram[y][x] = color16;
+		for (int y = 0; y < size.y; y++)
+		for (int x = 0; x < size.x; x++)
+			gpu.vram[pos.y + y][pos.x + x] = color16;
 		break;
 	}
 	case SET_DRAWING_SETTINGS:
@@ -567,15 +562,10 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 	}
 
 	Vertex texpage_coord = (Vertex){
-		.x = (rectangle.texpage & 0xFF) << 6,
+		.x = (rectangle.texpage & 0x0F) << 6,
 		.y = (rectangle.texpage & 0x10) << 4,
 	};
-
-	Vertex tex_coord = (Vertex){
-		.x = texpage_coord.x + rectangle.uv[0].x,
-		.y = texpage_coord.y + rectangle.uv[0].y,
-	};
-
+	uint8_t bbp = (rectangle.texpage >> 7) & 3u;
 	bool x_flip = (rectangle.texpage >> 12) & 1u;
 	bool y_flip = (rectangle.texpage >> 13) & 1u;
 	int  x_dir = x_flip ? -1 : 1;
@@ -583,7 +573,29 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 
 	for (int y = 0; y < size.y; y++)
 	for (int x = 0; x < size.x; x++) {
-		uint16_t tex_color = gpu.vram[tex_coord.y + y_dir * y][tex_coord.x + x_dir * x];
+		uint16_t tex_color = 0;
+		uint8_t u = (uint8_t)(rectangle.uv[0].x + x_dir * x);
+		uint8_t v = (uint8_t)(rectangle.uv[0].y + y_dir * y);
+		switch (bbp) {
+		case 0: {
+			uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 2)];
+			index >>= 4 * (u % 4);
+			index &= 0x0F;
+			tex_color = gpu.vram[rectangle.clut.y][rectangle.clut.x + index];
+			break;
+		}
+		case 1: {
+			uint16_t index = gpu.vram[texpage_coord.y + v][texpage_coord.x + (u >> 1)];
+			index >>= 8 * (u % 2);
+			index &= 0xFF;
+			tex_color = gpu.vram[rectangle.clut.y][rectangle.clut.x + index];
+			break;
+		}
+		case 2: {
+			tex_color = gpu.vram[texpage_coord.y + v][texpage_coord.x + u];
+			break;
+		}
+		}
 		if (!(tex_color & 0x8000u)) {
 			continue;
 		}
@@ -600,13 +612,13 @@ static inline void draw_rectangle(DrawingPrimitive rectangle) {
 }
 
 static Color24 apply_dither24(int16_t x, int16_t y, Color24 color) {
-	static const int16_t dither_pattern[4][4] = {
+	static const int8_t dither_pattern[4][4] = {
 		{ -4, +0, -3, +1 },
 		{ +2, -2, +3, -1 },
 		{ -3, +1, -4, +0 },
 		{ +3, -1, +2, -2 },
 	};
-	int16_t dither_offset = dither_pattern[y & 0x03][x & 0x03];
+	int8_t dither_offset = dither_pattern[y & 0x03][x & 0x03];
 	int32_t r = color.r + dither_offset;
 	int32_t g = color.g + dither_offset;
 	int32_t b = color.b + dither_offset;
@@ -740,8 +752,7 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
-				Color24 color;
-
+				Color24 color = c0;
 				if (shaded) {
 					float a0 = (float)w1 / (float)double_area;
 					float a1 = (float)w2 / (float)double_area;
@@ -749,8 +760,6 @@ static inline void draw_triangle(DrawingPrimitive triangle) {
 					color = blend_triangle24(c0, c1, c2, a0, a1, a2);
 					if (dithering)
 						color = apply_dither24(x, y, color);
-				} else {
-					color = c0;
 				}
 				gpu_put_pixel(pixel, color, semitrans);
 			} else if (reached_triangle) {

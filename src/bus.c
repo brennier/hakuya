@@ -61,6 +61,7 @@ static const MemoryRegion MEMORY_REGIONS[] = {
 	{ "RAM_SIZE",   0x1F801060, 4,   NULL, NULL },
 	{ "ISTAT",      0x1F801070, 4,   NULL, NULL },
 	{ "IMASK",      0x1F801074, 4,   NULL, NULL },
+	{ "CDROM",      0x1F801800, 4,   NULL, NULL },
 	{ "DMA",        0x1F801080, 128, dma_write, NULL },
 	{ "GPU0",       0x1F801810, 4,   gpu_write_gp0, gpu_read_gp0 },
 	{ "GPU1",       0x1F801814, 4,   gpu_write_gp1, gpu_read_gp1 },

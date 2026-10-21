@@ -36,7 +36,7 @@ typedef struct {
 	Vertex   uv[3];
 	Vertex   clut;
 	Vertex   texpage;
-	uint16_t texpage_raw;
+	uint8_t  texture_bpp;
 	bool     shaded, textured, semitrans, raw_texture;
 } TrianglePrimitive;
 
@@ -47,8 +47,8 @@ typedef struct {
 	Vertex   uv;
 	Vertex   texpage;
 	Vertex   clut;
-	uint16_t texpage_raw;
-	bool     textured, semitrans, raw_texture;
+	uint8_t  texture_bpp;
+	bool     x_flip, y_flip, textured, semitrans, raw_texture;
 } RectanglePrimitive;
 
 typedef struct {
@@ -174,6 +174,16 @@ static inline Vertex read_texpage(uint32_t word) {
 	};
 }
 
+static inline uint8_t read_texture_bpp(uint32_t word) {
+	static const uint8_t bpp_table[4] = { 4, 8, 16, 0 };
+	uint8_t bpp = bpp_table[(word >> 7) & 0x3];
+	if (bpp == 0) {
+		fprintf(stderr, "[WARNING] Unknown bpp, using 16 instead\n");
+		bpp = 16;
+	}
+	return bpp;
+}
+
 static inline Vertex read_texcoord(uint32_t word) {
 	return (Vertex){
 		.x = (word >> 0) & 0xFF,
@@ -217,7 +227,7 @@ static void gpu_execute_polygon_command(uint32_t command, uint32_t *arguments) {
 				triangle.clut = read_clut(arguments[j]);
 			} else if (i == 1) {
 				triangle.texpage = read_texpage(arguments[j] >> 16);
-				triangle.texpage_raw = (arguments[j] >> 16);
+				triangle.texture_bpp = read_texture_bpp(arguments[j] >> 16);
 			}
 			j++;
 		}
@@ -287,7 +297,9 @@ static void gpu_execute_rectangle_command(uint32_t command, uint32_t *arguments)
 		rectangle.uv      = read_texcoord(arguments[i]);
 		rectangle.clut    = read_clut(arguments[i]);
 		rectangle.texpage = read_texpage(gpu.draw_mode_settings);
-		rectangle.texpage_raw = gpu.draw_mode_settings & 0xFFFF;
+		rectangle.texture_bpp = read_texture_bpp(gpu.draw_mode_settings);
+		rectangle.x_flip = (gpu.draw_mode_settings >> 12) & 1u;
+		rectangle.y_flip = (gpu.draw_mode_settings >> 13) & 1u;
 		i++;
 	}
 	if (rectangle.size.x == 0) {
@@ -566,19 +578,19 @@ static inline uint16_t blend_texture(uint16_t tex_color, Color24 shade_color) {
 
 static inline uint16_t get_texel(Vertex texpage, uint8_t u, uint8_t v, uint8_t bpp, const uint16_t *clut) {
 	switch (bpp) {
-	case 0: {
+	case 4: {
 		uint16_t index = gpu.vram[texpage.y + v][texpage.x + (u >> 2)];
 		index >>= 4 * (u % 4);
 		index &= 0x0F;
 		return clut[index];
 	}
-	case 1: {
+	case 8: {
 		uint16_t index = gpu.vram[texpage.y + v][texpage.x + (u >> 1)];
 		index >>= 8 * (u % 2);
 		index &= 0xFF;
 		return clut[index];
 	}
-	case 2: {
+	case 16: {
 		return gpu.vram[texpage.y + v][texpage.x + u];
 	}
 	default: {
@@ -610,20 +622,18 @@ static inline void draw_rectangle(RectanglePrimitive rectangle) {
 	}
 
 	Vertex texpage = rectangle.texpage;
-	bool x_flip = (rectangle.texpage_raw >> 12) & 1u;
-	bool y_flip = (rectangle.texpage_raw >> 13) & 1u;
-	uint8_t bpp = (rectangle.texpage_raw >> 7) & 3u;
+	uint8_t bpp = rectangle.texture_bpp;
 	uint16_t clut[256];
 	switch (bpp) {
-	case 0: memcpy(clut, &gpu.vram[rectangle.clut.y][rectangle.clut.x], 32);  break;
-	case 1: memcpy(clut, &gpu.vram[rectangle.clut.y][rectangle.clut.x], 512); break;
+	case 4: memcpy(clut, &gpu.vram[rectangle.clut.y][rectangle.clut.x], 32);  break;
+	case 8: memcpy(clut, &gpu.vram[rectangle.clut.y][rectangle.clut.x], 512); break;
 	}
 
 	uint8_t u0 = (uint8_t)rectangle.uv.x;
 	uint8_t u = u0;
 	uint8_t v = (uint8_t)rectangle.uv.y;
-	uint8_t u_dir = x_flip ? (uint8_t)-1 : 1;
-	uint8_t v_dir = y_flip ? (uint8_t)-1 : 1;
+	uint8_t u_dir = rectangle.x_flip ? (uint8_t)-1 : 1;
+	uint8_t v_dir = rectangle.y_flip ? (uint8_t)-1 : 1;
 
 	for (int y = 0; y < size.y; y++, v += v_dir) {
 		u = u0;
@@ -702,7 +712,7 @@ static inline void draw_line(LinePrimitive line) {
 }
 
 static inline uint16_t compute_tritexel(const TrianglePrimitive *triangle, float a0, float a1, float a2) {
-	uint8_t bpp = (triangle->texpage_raw >> 7) & 3u;
+	uint8_t bpp = triangle->texture_bpp;
 	Vertex uv0 = triangle->uv[0];
 	Vertex uv1 = triangle->uv[1];
 	Vertex uv2 = triangle->uv[2];

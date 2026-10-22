@@ -1,67 +1,59 @@
-#include "bus.h"
-#include "gpu.h"
-#include "dma.h"
-#include "bios.h"
+#include "core.h"
 #include "debug.h"
 
 #include <assert.h>
 #include <stdio.h>
 
-uint8_t ram[2 * 1024 * 1024] = { 0 };
-uint8_t scratchpad[1024] = { 0 };
-uint16_t interrupt_status = 0u;
-uint16_t interrupt_mask   = 0u;
+typedef void (*WriteHandler)(struct HakuyaCore *core, uint32_t address, uint32_t value, int bytes);
+typedef uint32_t (*ReadHandler)(struct HakuyaCore *core, uint32_t address, int bytes);
 
-typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
-typedef uint32_t (*ReadHandler)(uint32_t address, int bytes);
-
-static inline uint32_t ram_read(uint32_t address, int bytes) {
+static inline uint32_t ram_read(struct HakuyaCore *core, uint32_t address, int bytes) {
 	uint32_t value = 0;
 	for (size_t i = 0; i < (size_t)bytes; i++)
-		value |= (uint32_t)(ram[address + i]) << (8 * i);
+		value |= (uint32_t)(core->ram[address + i]) << (8 * i);
 	return value;
 }
 
-static inline void ram_write(uint32_t address, uint32_t value, int bytes) {
+static inline void ram_write(struct HakuyaCore *core, uint32_t address, uint32_t value, int bytes) {
 	for (size_t i = 0; i < (size_t)bytes; i++)
-		ram[address + i] = (uint8_t)(value >> (8 * i));
+		core->ram[address + i] = (uint8_t)(value >> (8 * i));
 }
 
-static inline uint32_t scratchpad_read(uint32_t address, int bytes) {
+static inline uint32_t scratchpad_read(struct HakuyaCore *core, uint32_t address, int bytes) {
 	uint32_t value = 0;
 	for (size_t i = 0; i < (size_t)bytes; i++)
-		value |= (uint32_t)(scratchpad[address + i]) << (8 * i);
+		value |= (uint32_t)(core->scratchpad[address + i]) << (8 * i);
 	return value;
 }
 
-static inline void scratchpad_write(uint32_t address, uint32_t value, int bytes) {
+static inline void scratchpad_write(struct HakuyaCore *core, uint32_t address, uint32_t value, int bytes) {
 	for (size_t i = 0; i < (size_t)bytes; i++)
-		scratchpad[address + i] = (uint8_t)(value >> (8 * i));
+		core->scratchpad[address + i] = (uint8_t)(value >> (8 * i));
 }
 
-static inline uint32_t expansion1_read(uint32_t address, int bytes) {
+static inline uint32_t expansion1_read(struct HakuyaCore *core, uint32_t address, int bytes) {
 	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning all 1's)\n",
 		bytes * 8, "EXPANSION1", address);
 	return 0xFFFFFFFF;
 }
 
-static inline void interrupt_write(uint32_t relative_address, uint32_t value, int bytes) {
+static inline void interrupt_write(struct HakuyaCore *core, uint32_t relative_address, uint32_t value, int bytes) {
 	(void)bytes;
 	value &= 0x7FF;
 	if (relative_address < 4) {
 		// Writing 0 clears an interrupt, writing 1 has no effect
-		interrupt_status &= (uint16_t)value;
+		core->interrupt_status &= (uint16_t)value;
 	} else {
-		interrupt_mask = (uint16_t)value;
+		core->interrupt_mask = (uint16_t)value;
 	}
 }
 
-static inline uint32_t interrupt_read(uint32_t relative_address, int bytes) {
+static inline uint32_t interrupt_read(struct HakuyaCore *core, uint32_t relative_address, int bytes) {
 	(void)bytes;
 	if (relative_address < 4) {
-		return (uint32_t)interrupt_status;
+		return (uint32_t)core->interrupt_status;
 	} else {
-		return (uint32_t)interrupt_mask;
+		return (uint32_t)core->interrupt_mask;
 	}
 }
 
@@ -111,14 +103,14 @@ static inline uint32_t bus_strip_region_bits(uint32_t address) {
 	PANIC("%s", "Unreachable path");
 }
 
-static inline uint32_t bus_read(uint32_t address, int bytes) {
+static inline uint32_t bus_read(struct HakuyaCore *core, uint32_t address, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
 	for (size_t i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
 		MemoryRegion region = MEMORY_REGIONS[i];
 		if (region_contains(region, phys_address)) {
 			if (region.read_handler) {
-				return region.read_handler(phys_address - region.start, bytes);
+				return region.read_handler(core, phys_address - region.start, bytes);
 			} else {
 				fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0)\n",
 					bytes * 8, region.name, address);
@@ -130,14 +122,14 @@ static inline uint32_t bus_read(uint32_t address, int bytes) {
 	PANIC("Unimplemented read at address %08X\n", address);
 }
 
-static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
+static inline void bus_write(struct HakuyaCore *core, uint32_t address, uint32_t value, int bytes) {
 	uint32_t phys_address = bus_strip_region_bits(address);
 
 	for (size_t i = 0; i < sizeof(MEMORY_REGIONS) / sizeof(MemoryRegion); i++) {
 		MemoryRegion region = MEMORY_REGIONS[i];
 		if (region_contains(region, phys_address)) {
 			if (region.write_handler) {
-				region.write_handler(phys_address - region.start, value, bytes);
+				region.write_handler(core, phys_address - region.start, value, bytes);
 				return;
 			} else {
 				fprintf(stderr, "[WARNING] Ignoring write%-2d to   %-12s at %08X (= %08X)\n",
@@ -150,18 +142,18 @@ static inline void bus_write(uint32_t address, uint32_t value, int bytes) {
 	PANIC("Unimplemented write at address %08X\n", address);
 }
 
-uint8_t  bus_read8 (uint32_t address) { return (uint8_t)bus_read(address, 1); }
-uint16_t bus_read16(uint32_t address) { return (uint16_t)bus_read(address, 2); }
-uint32_t bus_read32(uint32_t address) { return (uint32_t)bus_read(address, 4); }
+uint8_t  bus_read8 (struct HakuyaCore *core, uint32_t address) { return (uint8_t) bus_read(core, address, 1); }
+uint16_t bus_read16(struct HakuyaCore *core, uint32_t address) { return (uint16_t)bus_read(core, address, 2); }
+uint32_t bus_read32(struct HakuyaCore *core, uint32_t address) { return (uint32_t)bus_read(core, address, 4); }
 
-void bus_write8 (uint32_t address, uint8_t  value) { bus_write(address, value, 1); }
-void bus_write16(uint32_t address, uint16_t value) { bus_write(address, value, 2); }
-void bus_write32(uint32_t address, uint32_t value) { bus_write(address, value, 4); }
+void bus_write8 (struct HakuyaCore *core, uint32_t address, uint8_t  value) { bus_write(core, address, value, 1); }
+void bus_write16(struct HakuyaCore *core, uint32_t address, uint16_t value) { bus_write(core, address, value, 2); }
+void bus_write32(struct HakuyaCore *core, uint32_t address, uint32_t value) { bus_write(core, address, value, 4); }
 
-void bus_interrupt_set(enum InterruptType interrupt) {
-	interrupt_status |= (1u << (int)interrupt);
+void bus_interrupt_set(struct HakuyaCore *core, enum InterruptType interrupt) {
+	core->interrupt_status |= (1u << (int)interrupt);
 }
 
-bool bus_interrupt_is_pending(void) {
-	return (bool)(interrupt_status & interrupt_mask);
+bool bus_interrupt_is_pending(struct HakuyaCore *core) {
+	return (bool)(core->interrupt_status & core->interrupt_mask);
 }

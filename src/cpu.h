@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+struct HakuyaCore;
+
 struct HakuyaCPU {
 	uint32_t pc;
 	uint32_t next_pc;
@@ -17,8 +19,8 @@ struct HakuyaCPU {
 	} pending_load[2];
 };
 
-void cpu_init(struct HakuyaCPU *cpu);
-void cpu_run_next_instruction(struct HakuyaCPU *cpu);
-void cpu_print_regs(struct HakuyaCPU *cpu);
+void cpu_init(struct HakuyaCore *core);
+void cpu_run_next_instruction(struct HakuyaCore *core);
+void cpu_print_regs(struct HakuyaCore *core);
 
 #endif // HAGKUYA_CPU_H

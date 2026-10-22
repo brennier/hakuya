@@ -3,7 +3,9 @@
 
 #include <stdint.h>
 
-void bios_load(const char *filepath);
-uint32_t bios_read(uint32_t offset, int bytes);
+struct HakuyaCore;
+
+void bios_load(struct HakuyaCore *core, const char *filepath);
+uint32_t bios_read(struct HakuyaCore *core, uint32_t offset, int bytes);
 
 #endif // HAKUYA_BIOS_H

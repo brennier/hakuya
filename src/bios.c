@@ -11,7 +11,7 @@
 static uint8_t bios[BIOS_SIZE] = { 0 };
 static bool bios_is_loaded = false;
 
-void bios_load(const char *filepath) {
+void bios_load(struct HakuyaCore *core, const char *filepath) {
 	FILE *file_ptr = fopen(filepath, "rb");
 	if (!file_ptr) {
 		fprintf(stderr, "Failed to open the BIOS file '%s': ", filepath);
@@ -34,7 +34,7 @@ void bios_load(const char *filepath) {
 	bios_is_loaded = true;
 }
 
-uint32_t bios_read(uint32_t offset, int bytes) {
+uint32_t bios_read(struct HakuyaCore *core, uint32_t offset, int bytes) {
 	assert(bios_is_loaded);
 	uint32_t value = 0;
 	for (size_t i = 0; i < (size_t)bytes; i++)

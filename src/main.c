@@ -134,7 +134,7 @@ int main(int argc, char *argv[]) {
 		}
 
 		hakuya_render_vram_u16(app.core, (uint16_t*)frame);
-		/* hakuya_get_display_area(&x, &y, &width, &height); */
+		/* hakuya_get_display_area(app.core, &x, &y, &width, &height); */
 		const SDL_FRect source_rectangle = { (float)x, (float)y, (float)width, (float)height };
 		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint16_t) * VRAM_WIDTH);
 		SDL_RenderTexture(app.renderer, app.screen_texture, &source_rectangle, NULL);

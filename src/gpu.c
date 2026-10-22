@@ -164,19 +164,19 @@ static inline uint32_t color16to32(uint16_t c) {
 	return result | ((result >> 5) & 0x00070707u);
 }
 
-void gpu_render_vram_u32(uint32_t *output_buffer) {
+void gpu_render_vram_u32(struct HakuyaCore *core, uint32_t *output_buffer) {
 	uint16_t *flat_vram = (uint16_t*)gpu.vram;
 	for (int i = 0; i < VRAM_WIDTH * VRAM_HEIGHT; i++)
 		output_buffer[i] = color16to32(flat_vram[i]);
 }
 
-void gpu_render_vram_u16(uint16_t *output_buffer) {
+void gpu_render_vram_u16(struct HakuyaCore *core, uint16_t *output_buffer) {
 	uint16_t *flat_vram = (uint16_t*)gpu.vram;
 	for (int i = 0; i < VRAM_WIDTH * VRAM_HEIGHT; i++)
 		output_buffer[i] = flat_vram[i];
 }
 
-void gpu_get_display_area(int *x, int *y, int *width, int *height) {
+void gpu_get_display_area(struct HakuyaCore *core, int *x, int *y, int *width, int *height) {
 	*x = gpu.display_area_start.x;
 	*y = gpu.display_area_start.y;
 	*width  = gpu.display_area_size.x;
@@ -457,13 +457,13 @@ static void gpu_execute_command(uint32_t command) {
 	}
 }
 
-uint32_t gpu_read_gp0(uint32_t address, int bytes) {
+uint32_t gpu_read_gp0(struct HakuyaCore *core, uint32_t address, int bytes) {
 	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0x%08X)\n",
 		bytes * 8, "GPU0", address, 0);
 	return 0;
 }
 
-uint32_t gpu_read_gp1(uint32_t address, int bytes) {
+uint32_t gpu_read_gp1(struct HakuyaCore *core, uint32_t address, int bytes) {
 	// Always signal that the GPU is ready
 	uint32_t result = (1u << 26) | (1u << 27) | (1u << 28);
 	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning 0x%08X)\n",
@@ -493,7 +493,7 @@ static inline uint8_t gpu_compute_command_length(uint32_t command) {
 	return gpu_command_length[command >> 24];
 }
 
-void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
+void gpu_write_gp0(struct HakuyaCore *core, uint32_t address, uint32_t value, int bytes) {
 	(void)bytes;
 	(void)address;
 
@@ -558,7 +558,7 @@ void gpu_write_gp0(uint32_t address, uint32_t value, int bytes) {
 	}
 }
 
-void gpu_write_gp1(uint32_t address, uint32_t value, int bytes) {
+void gpu_write_gp1(struct HakuyaCore *core, uint32_t address, uint32_t value, int bytes) {
 	(void)address;
 	(void)bytes;
 	switch (value >> 24) {

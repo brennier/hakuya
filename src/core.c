@@ -2,18 +2,11 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include "cpu.h"
-#include "bios.h"
-#include "bus.h"
-#include "gpu.h"
-
-struct HakuyaCore {
-	struct HakuyaCPU cpu;
-};
 
 struct HakuyaCore *hakuya_core_create(void) {
 	struct HakuyaCore *core = malloc(sizeof(struct HakuyaCore));
-	cpu_init(&core->cpu);
+	memset(core, 0, sizeof(struct HakuyaCore));
+	cpu_init(core);
 	return core;
 }
 
@@ -22,12 +15,11 @@ void hakuya_core_free(struct HakuyaCore *core) {
 }
 
 void hakuya_core_tick(struct HakuyaCore *core) {
-	cpu_run_next_instruction(&core->cpu);
+	cpu_run_next_instruction(core);
 }
 
 void hakuya_load_bios(struct HakuyaCore *core, const char *bios_path) {
-	(void)core;
-	bios_load(bios_path);
+	bios_load(core, bios_path);
 }
 
 static inline uint32_t read32_le(uint8_t *data) {
@@ -40,7 +32,7 @@ static inline uint32_t read32_le(uint8_t *data) {
 void hakuya_start_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_length) {
 	(void)exe_length;
 	while (core->cpu.pc != 0x80030000) {
-		cpu_run_next_instruction(&core->cpu);
+		cpu_run_next_instruction(core);
 	}
 
 	uint32_t initial_pc   = read32_le(&exe_data[0x10]);
@@ -49,7 +41,7 @@ void hakuya_start_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_len
 	uint32_t exe_size     = read32_le(&exe_data[0x1C]);
 	uint32_t initial_sp   = read32_le(&exe_data[0x30]);
 
-	memcpy(ram + exe_ram_addr, exe_data + 2048, exe_size);
+	memcpy(core->ram + exe_ram_addr, exe_data + 2048, exe_size);
 	if (initial_sp) {
 		core->cpu.regs[29] = initial_sp;
 		core->cpu.regs[30] = initial_sp;
@@ -61,15 +53,13 @@ void hakuya_start_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_len
 }
 
 void hakuya_render_vram_u16(struct HakuyaCore *core, uint16_t *output_buffer) {
-	(void)core;
-	gpu_render_vram_u16(output_buffer);
+	gpu_render_vram_u16(core, output_buffer);
 }
 
 void hakuya_render_vram_u32(struct HakuyaCore *core, uint32_t *output_buffer) {
-	(void)core;
-	gpu_render_vram_u32(output_buffer);
+	gpu_render_vram_u32(core, output_buffer);
 }
 
-void hakuya_get_display_area(int *x, int *y, int *width, int *height) {
-	gpu_get_display_area(x, y, width, height);
+void hakuya_get_display_area(struct HakuyaCore *core, int *x, int *y, int *width, int *height) {
+	gpu_get_display_area(core, x, y, width, height);
 }

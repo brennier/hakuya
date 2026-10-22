@@ -56,7 +56,7 @@ struct DMA dma = {
 	.registers[REG_GENERAL_CONTROL] = (uint32_t)0x07654321u,
 };
 
-static inline void dma_trigger_otc(void) {
+static inline void dma_trigger_otc(struct HakuyaCore *core) {
 	uint32_t address    = dma.registers[REG_OTC_START] & 0x00FFFFFCu;
 	uint32_t word_count = dma.registers[REG_OTC_BLOCKS] & 0xFFFFu;
 	printf("DMA OTC triggered: start %08X, size %08X\n",
@@ -64,14 +64,14 @@ static inline void dma_trigger_otc(void) {
 
 	unsigned i = 0;
 	while (i < word_count) {
-		bus_write32(address, address - 4);
+		bus_write32(core, address, address - 4);
 		address -= 4;
 		i++;
 	}
-	bus_write32(address + 4, 0x00FFFFFF);
+	bus_write32(core, address + 4, 0x00FFFFFF);
 }
 
-static inline void dma_trigger_gpu(void) {
+static inline void dma_trigger_gpu(struct HakuyaCore *core) {
 	uint32_t address = dma.registers[REG_GPU_START] & 0x00FFFFFCu;
 	uint32_t sync_mode = (dma.registers[REG_GPU_CONTROL] >> 9) & 0x03;
 	printf("DMA GPU triggered: start %08X mode %08X\n", address, sync_mode);
@@ -79,8 +79,8 @@ static inline void dma_trigger_gpu(void) {
 	case 0: {
 		uint32_t word_count = dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
 		for (uint32_t i = 0; i < word_count; i++) {
-			uint32_t data = bus_read32(address + 4*i);
-			bus_write32(GPU0_ADDRESS, data);
+			uint32_t data = bus_read32(core, address + 4*i);
+			bus_write32(core, GPU0_ADDRESS, data);
 		}
 		return;
 	}
@@ -88,19 +88,19 @@ static inline void dma_trigger_gpu(void) {
 		uint32_t block_size  = dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
 		uint32_t block_count = dma.registers[REG_GPU_BLOCKS] >> 16;
 		for (uint32_t i = 0; i < block_size * block_count; i++) {
-			uint32_t data = bus_read32(address + 4*i);
-			bus_write32(GPU0_ADDRESS, data);
+			uint32_t data = bus_read32(core, address + 4*i);
+			bus_write32(core, GPU0_ADDRESS, data);
 		}
 		return;
 	}
 	case 2: {
 		while (true) {
-			uint32_t header = bus_read32(address);
+			uint32_t header = bus_read32(core, address);
 			uint32_t word_count = header >> 24;
 			for (uint32_t i = 0; i < word_count; i++) {
-				uint32_t data = bus_read32(address + 4*(i+1));
+				uint32_t data = bus_read32(core, address + 4*(i+1));
 				printf("Sending %08X\n", data);
-				bus_write32(GPU0_ADDRESS, data);
+				bus_write32(core, GPU0_ADDRESS, data);
 			}
 			address = header & 0x00FFFFFF;
 			if (address & (1u << 23)) {
@@ -115,7 +115,7 @@ static inline void dma_trigger_gpu(void) {
 	}
 }
 
-void dma_write(uint32_t relative_address, uint32_t value, int bytes) {
+void dma_write(struct HakuyaCore *core, uint32_t relative_address, uint32_t value, int bytes) {
 	(void)bytes;
 	if (bytes != 4) {
 		printf("Tried to write %d bytes\n", bytes);
@@ -127,12 +127,12 @@ void dma_write(uint32_t relative_address, uint32_t value, int bytes) {
 	switch (reg) {
 	case REG_GPU_CONTROL:
 		if (value & (1u << 24)) {
-			dma_trigger_gpu();
+			dma_trigger_gpu(core);
 		}
 		break;
 	case REG_OTC_CONTROL:
 		if (value & (1u << 28)) {
-			dma_trigger_otc();
+			dma_trigger_otc(core);
 		}
 		break;
 	default:

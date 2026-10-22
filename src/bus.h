@@ -4,16 +4,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-extern uint8_t ram[2 * 1024 * 1024];
-extern uint8_t scratchpad[1024];
+struct HakuyaCore;
 
-uint8_t  bus_read8 (uint32_t address);
-uint16_t bus_read16(uint32_t address);
-uint32_t bus_read32(uint32_t address);
+uint8_t  bus_read8 (struct HakuyaCore *core, uint32_t address);
+uint16_t bus_read16(struct HakuyaCore *core, uint32_t address);
+uint32_t bus_read32(struct HakuyaCore *core, uint32_t address);
 
-void bus_write8 (uint32_t address, uint8_t  value);
-void bus_write16(uint32_t address, uint16_t value);
-void bus_write32(uint32_t address, uint32_t value);
+void bus_write8 (struct HakuyaCore *core, uint32_t address, uint8_t  value);
+void bus_write16(struct HakuyaCore *core, uint32_t address, uint16_t value);
+void bus_write32(struct HakuyaCore *core, uint32_t address, uint32_t value);
 
 enum InterruptType {
 	INTERRUPT_VBLANK = 0,
@@ -30,7 +29,7 @@ enum InterruptType {
 	INTERRUPT_COUNT,
 };
 
-void bus_interrupt_set(enum InterruptType interrupt);
-bool bus_interrupt_is_pending(void);
+void bus_interrupt_set(struct HakuyaCore *core, enum InterruptType interrupt);
+bool bus_interrupt_is_pending(struct HakuyaCore *core);
 
 #endif // HAKUYA_BUS_H

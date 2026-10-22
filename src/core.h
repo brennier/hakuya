@@ -4,7 +4,19 @@
 #include <stdint.h>
 #include <stddef.h>
 
-struct HakuyaCore;
+#include "cpu.h"
+#include "bios.h"
+#include "bus.h"
+#include "gpu.h"
+#include "dma.h"
+
+struct HakuyaCore {
+	struct HakuyaCPU cpu;
+	uint8_t  ram[2 * 1024 * 1024];
+	uint8_t  scratchpad[1024];
+	uint16_t interrupt_status;
+	uint16_t interrupt_mask;
+};
 
 struct HakuyaCore *hakuya_core_create(void);
 void hakuya_core_free(struct HakuyaCore *core);
@@ -15,6 +27,6 @@ void hakuya_start_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_len
 
 void hakuya_render_vram_u16(struct HakuyaCore *core, uint16_t *output_buffer);
 void hakuya_render_vram_u32(struct HakuyaCore *core, uint32_t *output_buffer);
-void hakuya_get_display_area(int *x, int *y, int *width, int *height);
+void hakuya_get_display_area(struct HakuyaCore *core, int *x, int *y, int *width, int *height);
 
 #endif // HAGKUYA_CORE_H

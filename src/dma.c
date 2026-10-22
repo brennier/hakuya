@@ -12,31 +12,53 @@ enum SyncMode {
 	SYNC_UNUSED      = 3,
 };
 
-struct DMAChannel {
-	uint32_t start;
-	uint32_t block_control;
-	uint32_t channel_control;
+enum DMARegisterName {
+	REG_MDEC_IN_START = 0,
+	REG_MDEC_IN_BLOCKS,
+	REG_MDEC_IN_CONTROL,
+	REG_MDEC_IN_UNUSED,
+	REG_MDEC_OUT_START,
+	REG_MDEC_OUT_BLOCKS,
+	REG_MDEC_OUT_CONTROL,
+	REG_MDEC_OUT_UNUSED,
+	REG_GPU_START,
+	REG_GPU_BLOCKS,
+	REG_GPU_CONTROL,
+	REG_GPU_UNUSED,
+	REG_CDROM_START,
+	REG_CDROM_BLOCKS,
+	REG_CDROM_CONTROL,
+	REG_CDROM_UNUSED,
+	REG_SPU_START,
+	REG_SPU_BLOCKS,
+	REG_SPU_CONTROL,
+	REG_SPU_UNUSED,
+	REG_PIO_START,
+	REG_PIO_BLOCKS,
+	REG_PIO_CONTROL,
+	REG_PIO_UNUSED,
+	REG_OTC_START,
+	REG_OTC_BLOCKS,
+	REG_OTC_CONTROL,
+	REG_OTC_UNUSED,
+	REG_GENERAL_CONTROL,
+	REG_GENERAL_INTERRUPT,
+	REG_UNUSED0,
+	REG_UNUSED1,
+	REG_COUNT,
 };
 
 struct DMA {
-	struct DMAChannel mdec_in;
-	struct DMAChannel mdec_out;
-	struct DMAChannel gpu;
-	struct DMAChannel cdrom;
-	struct DMAChannel spu;
-	struct DMAChannel pio;
-	struct DMAChannel otc;
-	uint32_t control;
-	uint32_t interrupt;
+	uint32_t registers[REG_COUNT];
 };
 
 struct DMA dma = {
-	.control = (uint32_t)0x07654321,
+	.registers[REG_GENERAL_CONTROL] = (uint32_t)0x07654321u,
 };
 
 static inline void dma_trigger_otc(void) {
-	uint32_t address    = dma.otc.start & 0x00FFFFFCu;
-	uint32_t word_count = dma.otc.block_control & 0xFFFFu;
+	uint32_t address    = dma.registers[REG_OTC_START] & 0x00FFFFFCu;
+	uint32_t word_count = dma.registers[REG_OTC_BLOCKS] & 0xFFFFu;
 	printf("DMA OTC triggered: start %08X, size %08X\n",
 	       address, word_count);
 
@@ -50,12 +72,12 @@ static inline void dma_trigger_otc(void) {
 }
 
 static inline void dma_trigger_gpu(void) {
-	uint32_t address = dma.gpu.start & 0x00FFFFFCu;
-	uint32_t sync_mode = (dma.gpu.channel_control >> 9) & 0x03;
+	uint32_t address = dma.registers[REG_GPU_START] & 0x00FFFFFCu;
+	uint32_t sync_mode = (dma.registers[REG_GPU_CONTROL] >> 9) & 0x03;
 	printf("DMA GPU triggered: start %08X mode %08X\n", address, sync_mode);
 	switch (sync_mode) {
 	case 0: {
-		uint32_t word_count = dma.gpu.block_control & 0xFFFFu;
+		uint32_t word_count = dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
 		for (uint32_t i = 0; i < word_count; i++) {
 			uint32_t data = bus_read32(address + 4*i);
 			bus_write32(GPU0_ADDRESS, data);
@@ -63,8 +85,8 @@ static inline void dma_trigger_gpu(void) {
 		return;
 	}
 	case 1: {
-		uint32_t block_size  = dma.gpu.block_control & 0xFFFFu;
-		uint32_t block_count = dma.gpu.block_control >> 16;
+		uint32_t block_size  = dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
+		uint32_t block_count = dma.registers[REG_GPU_BLOCKS] >> 16;
 		for (uint32_t i = 0; i < block_size * block_count; i++) {
 			uint32_t data = bus_read32(address + 4*i);
 			bus_write32(GPU0_ADDRESS, data);
@@ -98,59 +120,22 @@ void dma_write(uint32_t relative_address, uint32_t value, int bytes) {
 	if (bytes != 4) {
 		printf("Tried to write %d bytes\n", bytes);
 	}
-	switch (relative_address >> 2) {
-	// Channel 0 (MDEC_IN)
-	case 0: dma.mdec_in.start           = value; break;
-	case 1: dma.mdec_in.block_control   = value; break;
-	case 2: dma.mdec_in.channel_control = value; break;
-	case 3: break;
 
-	// Channel 1 (MDEC_OUT)
-	case 4: dma.mdec_out.start           = value; break;
-	case 5: dma.mdec_out.block_control   = value; break;
-	case 6: dma.mdec_out.channel_control = value; break;
-	case 7: break;
+	enum DMARegisterName reg = relative_address >> 2;
+	dma.registers[reg] = value;
 
-	// Channel 2 (GPU)
-	case 8:  dma.gpu.start           = value; break;
-	case 9:  dma.gpu.block_control   = value; break;
-	case 10: dma.gpu.channel_control = value;
+	switch (reg) {
+	case REG_GPU_CONTROL:
 		if (value & (1u << 24)) {
 			dma_trigger_gpu();
 		}
 		break;
-	case 11: break;
-
-	// Channel 3 (CDROM)
-	case 12: dma.cdrom.start           = value; break;
-	case 13: dma.cdrom.block_control   = value; break;
-	case 14: dma.cdrom.channel_control = value; break;
-	case 15: break;
-
-	// Channel 4 (SPU)
-	case 16: dma.spu.start           = value; break;
-	case 17: dma.spu.block_control   = value; break;
-	case 18: dma.spu.channel_control = value; break;
-	case 19: break;
-
-	// Channel 5 (PIO)
-	case 20: dma.pio.start           = value; break;
-	case 21: dma.pio.block_control   = value; break;
-	case 22: dma.pio.channel_control = value; break;
-	case 23: break;
-
-	// Channel 6 (OTC)
-	case 24: dma.otc.start           = value; break;
-	case 25: dma.otc.block_control   = value; break;
-	case 26: dma.otc.channel_control = value;
+	case REG_OTC_CONTROL:
 		if (value & (1u << 28)) {
 			dma_trigger_otc();
 		}
 		break;
-	case 27: break;
-
-	// General DMA settings
-	case 28: dma.control   = value; break;
-	case 29: dma.interrupt = value; break;
+	default:
+		break;
 	}
 }

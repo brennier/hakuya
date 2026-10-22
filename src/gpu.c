@@ -46,7 +46,7 @@ typedef struct {
 	Vertex   texpage;
 	uint8_t  texture_bpp;
 	uint8_t  blend_mode;
-	bool     shaded, textured, raw_texture;
+	bool     shaded, textured, raw_texture, dithering;
 } TrianglePrimitive;
 
 typedef struct {
@@ -66,7 +66,7 @@ typedef struct {
 	Vertex  start;
 	Vertex  end;
 	uint8_t blend_mode;
-	bool    shaded;
+	bool    shaded, dithering;
 } LinePrimitive;
 
 struct HakuyaGPU {
@@ -244,6 +244,15 @@ static void gpu_execute_polygon_command(uint32_t command, uint32_t *arguments) {
 		.textured  = (command >> 26) & 1u,
 		.raw_texture = (command >> 24) & 1u,
 	};
+
+	if (!triangle.textured) {
+		triangle.raw_texture = false;
+	}
+
+	if (gpu.dithering_enabled) {
+		triangle.dithering = triangle.textured ? !triangle.raw_texture : triangle.shaded;
+	}
+
 	int j = 0;
 	for (int i = 0; i < 3; i++) {
 		if (triangle.shaded) {
@@ -306,6 +315,7 @@ static void gpu_execute_line_command(uint32_t command, uint32_t *arguments) {
 		.start     = read_vertex(arguments[1]),
 		.shaded    = (command >> 28) & 1u,
 	};
+	line.dithering = gpu.dithering_enabled;
 	if (line.shaded) {
 		line.color[1]  = read_color(arguments[2]);
 		line.end = read_vertex(arguments[3]);
@@ -344,6 +354,9 @@ static void gpu_execute_rectangle_command(uint32_t command, uint32_t *arguments)
 		.textured  = (command >> 26) & 1u,
 		.raw_texture = (command >> 24) & 1u,
 	};
+	if (!rectangle.textured) {
+		rectangle.raw_texture = false;
+	}
 	int i = 2;
 	if (rectangle.textured) {
 		rectangle.uv      = read_texcoord(arguments[i]);
@@ -622,18 +635,18 @@ static inline void clamp_to_drawing_area(Vertex *v) {
 	else if (v->y > gpu.drawing_area_end.y) v->y = gpu.drawing_area_end.y;
 }
 
-static inline uint16_t blend_texture(uint16_t tex_color, Color24 shade_color) {
+static inline Color24 blend_texture(uint16_t tex_color, Color24 shade_color) {
 	uint8_t tex_r = (tex_color >>  0) & 0x1Fu;
 	uint8_t tex_g = (tex_color >>  5) & 0x1Fu;
 	uint8_t tex_b = (tex_color >> 10) & 0x1Fu;
-	uint32_t r = (uint32_t)(tex_r * shade_color.r) >> 7;
-	uint32_t g = (uint32_t)(tex_g * shade_color.g) >> 7;
-	uint32_t b = (uint32_t)(tex_b * shade_color.b) >> 7;
+	uint32_t r = (uint32_t)(tex_r * shade_color.r) >> 4;
+	uint32_t g = (uint32_t)(tex_g * shade_color.g) >> 4;
+	uint32_t b = (uint32_t)(tex_b * shade_color.b) >> 4;
 
-	r = (r > 31) ? 31 : r;
-	g = (g > 31) ? 31 : g;
-	b = (b > 31) ? 31 : b;
-	return (uint16_t)((tex_color & 0x8000u) | (b << 10) | (g << 5) | (r << 0));
+	r = (r > 255) ? 255 : r;
+	g = (g > 255) ? 255 : g;
+	b = (b > 255) ? 255 : b;
+	return (Color24){ (uint8_t)r, (uint8_t)g, (uint8_t)b };
 }
 
 static inline uint16_t get_texel(Vertex texpage, uint8_t u, uint8_t v, uint8_t bpp, const uint16_t *clut) {
@@ -698,15 +711,18 @@ static inline void draw_rectangle(RectanglePrimitive rectangle) {
 		u = u0;
 		for (int x = 0; x < size.x; x++, u += u_dir) {
 			uint16_t tex_color = get_texel(texpage, u, v, bpp, clut);
+			uint16_t top_bit = tex_color & 0x8000u;
+
 			enum BlendMode blend_mode = rectangle.blend_mode;
 			if (tex_color == 0) {
 				continue;
 			}
-			if (!(tex_color & 0x8000u)) {
+			if (!top_bit) {
 				blend_mode = BLEND_NONE;
 			}
 			if (!rectangle.raw_texture) {
-				tex_color = blend_texture(tex_color, color);
+				tex_color = color24to16(blend_texture(tex_color, color));
+				tex_color |= top_bit;
 			}
 			uint16_t *pixel = &gpu.vram[pos.y + y][pos.x + x];
 			gpu_put_pixel(pixel, tex_color, blend_mode);
@@ -745,14 +761,13 @@ static inline void draw_line(LinePrimitive line) {
 	Vertex  v1 = line.end;
 	Color24 c0 = line.color[0];
 	Color24 c1 = line.color[1];
-	bool dithering = gpu.dithering_enabled;
 
 	Vertex delta = { .x = v1.x - v0.x, .y = v1.y - v0.y };
 	int16_t step = (abs16(delta.x) > abs16(delta.y)) ? abs16(delta.x) : abs16(delta.y);
 
 	// Degenerate case
 	if (step == 0) {
-		if (dithering) c0 = apply_dither24(v0.x, v0.y, c0);
+		if (line.dithering) c0 = apply_dither24(v0.x, v0.y, c0);
 		gpu_put_pixel(&gpu.vram[v0.y][v0.x], color24to16(c0), line.blend_mode);
 		return;
 	}
@@ -764,7 +779,7 @@ static inline void draw_line(LinePrimitive line) {
 		int16_t x = (int16_t)((float)v0.x + (float)i * step_x + 0.5f);
 		int16_t y = (int16_t)((float)v0.y + (float)i * step_y + 0.5f);
 		Color24 c = interpolate_color24(c0, c1, (float)i * step_c);
-		if (dithering) c = apply_dither24(x, y, c);
+		if (line.dithering) c = apply_dither24(x, y, c);
 		gpu_put_pixel(&gpu.vram[y][x], color24to16(c), line.blend_mode);
 	}
 }
@@ -792,7 +807,7 @@ static inline void draw_triangle(TrianglePrimitive triangle) {
 	bool shaded = triangle.shaded;
 	bool textured = triangle.textured;
 	bool raw_texture = triangle.raw_texture;
-	bool dithering = gpu.dithering_enabled && triangle.shaded;
+	bool dithering = triangle.dithering;
 
 	// Computes the area of the triangle times 2 (used for shading)
 	int double_area = vec2_cross(
@@ -874,30 +889,42 @@ static inline void draw_triangle(TrianglePrimitive triangle) {
 				float a0 = (float)w1 / (float)double_area;
 				float a1 = (float)w2 / (float)double_area;
 				float a2 = (float)w0 / (float)double_area;
-				Color24 color24 = c0;
 				enum BlendMode blend_mode = triangle.blend_mode;
-				if (shaded && !raw_texture) {
-					color24 = blend_triangle24(c0, c1, c2, a0, a1, a2);
-					if (dithering)
-						color24 = apply_dither24(x, y, color24);
-				}
-				uint16_t color16;
+
 				bool transparent = false;
+				Color24 base_color;
+				uint16_t final_color;
+
+				if (shaded && !raw_texture) {
+					base_color = blend_triangle24(c0, c1, c2, a0, a1, a2);
+				} else {
+					base_color = c0;
+				}
+
 				if (textured) {
-					color16 = compute_tritexel(&triangle, a0, a1, a2);
-					if (!(color16 & 0x8000u)) {
-						blend_mode = BLEND_NONE;
-					}
-					if (color16 == 0) {
-						transparent = true;
-					} else if (!raw_texture) {
-						color16 = blend_texture(color16, color24);
+					uint16_t tex_color = compute_tritexel(&triangle, a0, a1, a2);
+					uint16_t top_bit = tex_color & 0x8000u;
+					blend_mode = top_bit ? blend_mode : BLEND_NONE;
+					transparent = (tex_color == 0) ? true : false;
+					if (raw_texture) {
+						final_color = tex_color;
+					} else {
+						Color24 blended_color = blend_texture(tex_color, base_color);
+						if (dithering) {
+							blended_color = apply_dither24(x, y, blended_color);
+						}
+						final_color = color24to16(blended_color);
+						final_color |= top_bit;
 					}
 				} else {
-					color16 = color24to16(color24);
+					if (dithering) {
+						base_color = apply_dither24(x, y, base_color);
+					}
+					final_color = color24to16(base_color);
 				}
+
 				if (!transparent) {
-					gpu_put_pixel(pixel, color16, blend_mode);
+					gpu_put_pixel(pixel, final_color, blend_mode);
 				}
 			} else if (reached_triangle) {
 				break;

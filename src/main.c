@@ -5,6 +5,7 @@
 #include "core.h"
 
 #define BIOS_FILE "./bios/SCPH1001.BIN"
+#define BIOS_SIZE (size_t)(512u * 1024u)
 #define EXE_FILE  "./exe/psxtest_cpu.exe"
 
 #define WINDOW_TITLE "Hakuya PSX Emulator"
@@ -107,7 +108,21 @@ int main(int argc, char *argv[]) {
 		return 1;
 	}
 
-	hakuya_load_bios(app.core, bios_path);
+	size_t bios_length;
+	uint8_t* bios_data = SDL_LoadFile(bios_path, &bios_length);
+	if (!bios_data) {
+		fprintf(stderr, "Error: Failed to load the bios file '%s'\n", bios_path);
+		hakuya_cleanup(&app);
+		return 1;
+	}
+	if (!hakuya_load_bios(app.core, bios_data, bios_length)) {
+		fprintf(stderr, "Error: The supplied BIOS file '%s' has an incorrect size (%zu bytes, expected %zu bytes)\n",
+			bios_path, bios_length, BIOS_SIZE);
+		SDL_free(bios_data);
+		hakuya_cleanup(&app);
+		return 1;
+	}
+	SDL_free(bios_data);
 
 	if (exe_path) {
 		app.exe_data = SDL_LoadFile(exe_path, &app.exe_length);

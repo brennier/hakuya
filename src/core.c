@@ -18,8 +18,12 @@ void hakuya_core_tick(struct HakuyaCore *core) {
 	cpu_run_next_instruction(core);
 }
 
-void hakuya_load_bios(struct HakuyaCore *core, const char *bios_path) {
-	bios_load(core, bios_path);
+bool hakuya_load_bios(struct HakuyaCore *core, const uint8_t *bios_data, size_t bios_length) {
+	if (bios_length != sizeof(core->bios))
+		return false;
+	memcpy(core->bios, bios_data, sizeof(core->bios));
+	core->bios_is_loaded = true;
+	return true;
 }
 
 static inline uint32_t read32_le(uint8_t *data) {

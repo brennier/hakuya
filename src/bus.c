@@ -57,6 +57,14 @@ static inline uint32_t interrupt_read(struct HakuyaCore *core, uint32_t relative
 	}
 }
 
+static inline uint32_t bios_read(struct HakuyaCore *core, uint32_t offset, int bytes) {
+	assert(core->bios_is_loaded);
+	uint32_t value = 0;
+	for (size_t i = 0; i < (size_t)bytes; i++)
+		value |= (uint32_t)(core->bios[offset + i]) << (8 * i);
+	return value;
+}
+
 typedef struct {
 	const char *name;
 	uint32_t start;

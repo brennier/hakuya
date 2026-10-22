@@ -6,10 +6,11 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdbool.h>
 
 uint8_t ram[2 * 1024 * 1024] = { 0 };
 uint8_t scratchpad[1024] = { 0 };
+uint16_t interrupt_status = 0u;
+uint16_t interrupt_mask   = 0u;
 
 typedef void (*WriteHandler)(uint32_t address, uint32_t value, int bytes);
 typedef uint32_t (*ReadHandler)(uint32_t address, int bytes);
@@ -44,6 +45,26 @@ static inline uint32_t expansion1_read(uint32_t address, int bytes) {
 	return 0xFFFFFFFF;
 }
 
+static inline void interrupt_write(uint32_t relative_address, uint32_t value, int bytes) {
+	(void)bytes;
+	value &= 0x7FF;
+	if (relative_address < 4) {
+		// Writing 0 clears an interrupt, writing 1 has no effect
+		interrupt_status &= (uint16_t)value;
+	} else {
+		interrupt_mask = (uint16_t)value;
+	}
+}
+
+static inline uint32_t interrupt_read(uint32_t relative_address, int bytes) {
+	(void)bytes;
+	if (relative_address < 4) {
+		return (uint32_t)interrupt_status;
+	} else {
+		return (uint32_t)interrupt_mask;
+	}
+}
+
 typedef struct {
 	const char *name;
 	uint32_t start;
@@ -59,13 +80,12 @@ static const MemoryRegion MEMORY_REGIONS[] = {
 	{ "MEM_CTRL",   0x1F801000, 36,  NULL, NULL },
 	{ "JOYPAD",     0x1F801040, 16,  NULL, NULL },
 	{ "RAM_SIZE",   0x1F801060, 4,   NULL, NULL },
-	{ "ISTAT",      0x1F801070, 4,   NULL, NULL },
-	{ "IMASK",      0x1F801074, 4,   NULL, NULL },
+	{ "INTERRUPTS", 0x1F801070, 8,   interrupt_write, interrupt_read },
 	{ "CDROM",      0x1F801800, 4,   NULL, NULL },
 	{ "DMA",        0x1F801080, 128, dma_write, NULL },
 	{ "GPU0",       0x1F801810, 4,   gpu_write_gp0, gpu_read_gp0 },
 	{ "GPU1",       0x1F801814, 4,   gpu_write_gp1, gpu_read_gp1 },
-	{ "TIMERS",     0x1F801100, 48,  NULL, NULL },
+	{ "TIMER",      0x1F801100, 48,  NULL, NULL },
 	{ "SPU",        0x1F801C00, 640, NULL, NULL },
 	{ "EXPANSION2", 0x1F802000, 8 * 1024,   NULL, NULL },
 	{ "BIOS",       0x1FC00000, 512 * 1024, NULL, bios_read },
@@ -137,3 +157,11 @@ uint32_t bus_read32(uint32_t address) { return (uint32_t)bus_read(address, 4); }
 void bus_write8 (uint32_t address, uint8_t  value) { bus_write(address, value, 1); }
 void bus_write16(uint32_t address, uint16_t value) { bus_write(address, value, 2); }
 void bus_write32(uint32_t address, uint32_t value) { bus_write(address, value, 4); }
+
+void bus_interrupt_set(enum InterruptType interrupt) {
+	interrupt_status |= (1u << (int)interrupt);
+}
+
+bool bus_interrupt_is_pending(void) {
+	return (bool)(interrupt_status & interrupt_mask);
+}

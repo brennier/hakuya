@@ -66,13 +66,14 @@ struct InstructionTypeJ {
 static inline void raise_exception(struct HakuyaCPU *cpu, enum ExceptionCode code) {
         // The first 6 bits of the SR register represent a 3-deep and 2-bit wide stack.
 	// The 2 bits represent "Kernel mode" and "Allow interrupts".
-	uint32_t mode = (cpu->cop0_regs[12] << 2) & 0x3F;
+	uint32_t mode = (cpu->cop0_regs[REG_SR] << 2) & 0x3F;
 	mode |= 0x02; // Turn on kernel mode and ignore interrupts
 	cpu->cop0_regs[REG_SR] &= ~(uint32_t)0x3F;
 	cpu->cop0_regs[REG_SR] |= mode;
 
 	// Record the cause and the current PC
-	cpu->cop0_regs[REG_CAUSE] = (uint32_t)code << 2;
+	cpu->cop0_regs[REG_CAUSE] &= ~(uint32_t)0x7Cu;
+	cpu->cop0_regs[REG_CAUSE] |= (uint32_t)code << 2;
 	cpu->cop0_regs[REG_EPC]   = cpu->pc;
 
 	// If we're in a branch delay slot
@@ -249,7 +250,7 @@ static inline void op_lui(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_lb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -262,7 +263,7 @@ static inline void op_lh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
 		return;
 	}
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -351,7 +352,7 @@ static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
 		return;
 	}
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -360,7 +361,7 @@ static inline void op_lw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_lbu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -373,7 +374,7 @@ static inline void op_lhu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		raise_exception(cpu, EXCEPTION_ADDRESS_LOAD_ERROR);
 		return;
 	}
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Load at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -382,7 +383,7 @@ static inline void op_lhu(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 
 static inline void op_sb(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 	uint32_t address = cpu->regs[ins.rs] + (uint32_t)(int32_t)(int16_t)ins.immediate;
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -395,7 +396,7 @@ static inline void op_sh(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		raise_exception(cpu, EXCEPTION_ADDRESS_STORE_ERROR);
 		return;
 	}
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -408,7 +409,7 @@ static inline void op_sw(struct HakuyaCPU *cpu, struct InstructionTypeI ins) {
 		raise_exception(cpu, EXCEPTION_ADDRESS_STORE_ERROR);
 		return;
 	}
-	if ((cpu->cop0_regs[12] & 0x00010000) != 0) {
+	if ((cpu->cop0_regs[REG_SR] & 0x00010000) != 0) {
 		/* fprintf(stderr, "[WARNING] Store at %08X was ignored since cache is isolated\n", address); */
 		return;
 	}
@@ -806,7 +807,6 @@ static void op_mfc0(struct HakuyaCPU *cpu, uint32_t instruction) {
 	uint32_t rt = bit_slice(instruction, 20, 16);
 	uint32_t rd = bit_slice(instruction, 15, 11);
 	cpu_reg_set_pending(cpu, rt, cpu->cop0_regs[rd]);
-	/* fprintf(stderr, "[INFO] The value %08X was moved from cop0[%d]\n", cpu->cop0_regs[rd], rd); */
 }
 
 static void op_rfe(struct HakuyaCPU *cpu, uint32_t instruction) {
@@ -867,7 +867,27 @@ static void print_tty_output(struct HakuyaCPU *cpu) {
 	}
 }
 
+static void check_interrupts(struct HakuyaCPU *cpu) {
+	uint32_t sr    = cpu->cop0_regs[REG_SR];
+	uint32_t cause = cpu->cop0_regs[REG_CAUSE];
+
+	// Set bit 10 of CAUSE if there's a hardware interrupt
+	cause &= ~((uint32_t)1u << 10);
+	cause |= ((uint32_t)bus_interrupt_is_pending() << 10);
+	cpu->cop0_regs[REG_CAUSE] = cause;
+
+	bool master_interrupts_enabled = sr & 0x01u;
+	if (master_interrupts_enabled && (sr & cause & 0x700)) {
+		raise_exception(cpu, EXCEPTION_INTERRUPT);
+		// Advance the pc so that it's now pointing at the exception vector
+		cpu->pc = cpu->next_pc;
+		cpu->next_pc = cpu->next_next_pc;
+		cpu->next_next_pc = cpu->next_pc + 4;
+	}
+}
+
 void cpu_run_next_instruction(struct HakuyaCPU *cpu) {
+	check_interrupts(cpu);
 	advance_pending_loads(cpu);
 	uint32_t instruction = bus_read32(cpu->pc);
 	execute_instruction(cpu, instruction);

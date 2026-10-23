@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <SDL3/SDL.h>
 
-#include "core.h"
+#include "hakuya.h"
 
 #define BIOS_FILE "./bios/SCPH1001.BIN"
 #define BIOS_SIZE (size_t)(512u * 1024u)

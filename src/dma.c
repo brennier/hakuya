@@ -1,7 +1,9 @@
 #include "dma.h"
 #include "bus.h"
+#include "core.h"
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 
 #define GPU0_ADDRESS 0x1F801810
 
@@ -48,17 +50,14 @@ enum DMARegisterName {
 	REG_COUNT,
 };
 
-struct DMA {
-	uint32_t registers[REG_COUNT];
-};
-
-struct DMA dma = {
-	.registers[REG_GENERAL_CONTROL] = (uint32_t)0x07654321u,
-};
+void dma_init(struct HakuyaCore *core) {
+	memset(&core->dma, 0, sizeof(struct HakuyaDMA));
+	core->dma.registers[REG_GENERAL_CONTROL] = (uint32_t)0x07654321u;
+}
 
 static inline void dma_trigger_otc(struct HakuyaCore *core) {
-	uint32_t address    = dma.registers[REG_OTC_START] & 0x00FFFFFCu;
-	uint32_t word_count = dma.registers[REG_OTC_BLOCKS] & 0xFFFFu;
+	uint32_t address    = core->dma.registers[REG_OTC_START] & 0x00FFFFFCu;
+	uint32_t word_count = core->dma.registers[REG_OTC_BLOCKS] & 0xFFFFu;
 	printf("DMA OTC triggered: start %08X, size %08X\n",
 	       address, word_count);
 
@@ -72,12 +71,12 @@ static inline void dma_trigger_otc(struct HakuyaCore *core) {
 }
 
 static inline void dma_trigger_gpu(struct HakuyaCore *core) {
-	uint32_t address = dma.registers[REG_GPU_START] & 0x00FFFFFCu;
-	uint32_t sync_mode = (dma.registers[REG_GPU_CONTROL] >> 9) & 0x03;
+	uint32_t address = core->dma.registers[REG_GPU_START] & 0x00FFFFFCu;
+	uint32_t sync_mode = (core->dma.registers[REG_GPU_CONTROL] >> 9) & 0x03;
 	printf("DMA GPU triggered: start %08X mode %08X\n", address, sync_mode);
 	switch (sync_mode) {
 	case 0: {
-		uint32_t word_count = dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
+		uint32_t word_count = core->dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
 		for (uint32_t i = 0; i < word_count; i++) {
 			uint32_t data = bus_read32(core, address + 4*i);
 			bus_write32(core, GPU0_ADDRESS, data);
@@ -85,8 +84,8 @@ static inline void dma_trigger_gpu(struct HakuyaCore *core) {
 		return;
 	}
 	case 1: {
-		uint32_t block_size  = dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
-		uint32_t block_count = dma.registers[REG_GPU_BLOCKS] >> 16;
+		uint32_t block_size  = core->dma.registers[REG_GPU_BLOCKS] & 0xFFFFu;
+		uint32_t block_count = core->dma.registers[REG_GPU_BLOCKS] >> 16;
 		for (uint32_t i = 0; i < block_size * block_count; i++) {
 			uint32_t data = bus_read32(core, address + 4*i);
 			bus_write32(core, GPU0_ADDRESS, data);
@@ -122,7 +121,7 @@ void dma_write(struct HakuyaCore *core, uint32_t relative_address, uint32_t valu
 	}
 
 	enum DMARegisterName reg = relative_address >> 2;
-	dma.registers[reg] = value;
+	core->dma.registers[reg] = value;
 
 	switch (reg) {
 	case REG_GPU_CONTROL:

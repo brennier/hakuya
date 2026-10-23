@@ -1,4 +1,5 @@
 #include "core.h"
+#include "hakuya.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -7,6 +8,7 @@ struct HakuyaCore *hakuya_core_create(void) {
 	struct HakuyaCore *core = malloc(sizeof(struct HakuyaCore));
 	memset(core, 0, sizeof(struct HakuyaCore));
 	cpu_init(core);
+	dma_init(core);
 	return core;
 }
 

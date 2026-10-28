@@ -11,6 +11,7 @@
 
 struct HakuyaCore {
 	struct HakuyaCPU cpu;
+	struct HakuyaGPU gpu;
 	struct HakuyaDMA dma;
 	uint8_t  bios[512 * 1024]; // 512 KiB
 	uint8_t  ram[2 * 1024 * 1024]; // 2 MiB

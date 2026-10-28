@@ -156,9 +156,9 @@ static inline Vertex read_clut(uint32_t word) {
 	};
 }
 
-static inline void draw_rectangle(uint16_t vram[512][1024], RectanglePrimitive rectangle);
-static inline void draw_triangle(uint16_t vram[512][1024], TrianglePrimitive triangle);
-static inline void draw_line(uint16_t vram[512][1024], LinePrimitive line);
+static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const RectanglePrimitive *rectangle);
+static inline void draw_triangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const TrianglePrimitive *triangle);
+static inline void draw_line(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const LinePrimitive *line);
 
 static void gpu_execute_polygon_command(struct HakuyaGPU *gpu, uint32_t command, uint32_t *arguments) {
 	TrianglePrimitive triangle = {
@@ -210,7 +210,7 @@ static void gpu_execute_polygon_command(struct HakuyaGPU *gpu, uint32_t command,
 		triangle.blend_mode = BLEND_NONE;
 	}
 
-	draw_triangle(gpu->vram, triangle);
+	draw_triangle(gpu->vram, &triangle);
 	bool is_quad = (command >> 27) & 1u;
 	if (!is_quad) return;
 
@@ -228,7 +228,7 @@ static void gpu_execute_polygon_command(struct HakuyaGPU *gpu, uint32_t command,
 	if (triangle.textured) {
 		triangle.uv[2] = read_texcoord(arguments[j++]);
 	}
-	draw_triangle(gpu->vram, triangle);
+	draw_triangle(gpu->vram, &triangle);
 }
 
 static void gpu_execute_line_command(struct HakuyaGPU *gpu, uint32_t command, uint32_t *arguments) {
@@ -259,7 +259,7 @@ static void gpu_execute_line_command(struct HakuyaGPU *gpu, uint32_t command, ui
 		gpu->polyline_active = true;
 		gpu->polyline_unfinished = false;
 	}
-	draw_line(gpu->vram, line);
+	draw_line(gpu->vram, &line);
 }
 
 static void gpu_execute_rectangle_command(struct HakuyaGPU *gpu, uint32_t command, uint32_t *arguments) {
@@ -298,7 +298,7 @@ static void gpu_execute_rectangle_command(struct HakuyaGPU *gpu, uint32_t comman
 	if (rectangle.size.x == 0) {
 		rectangle.size = read_vertex(arguments[i++]);
 	}
-	draw_rectangle(gpu->vram, rectangle);
+	draw_rectangle(gpu->vram, &rectangle);
 }
 
 static void gpu_execute_command(struct HakuyaGPU *gpu, uint32_t command) {
@@ -424,7 +424,7 @@ void gpu_write_gp0(struct HakuyaCore *core, uint32_t address, uint32_t value, in
 			gpu->polyline.start = gpu->polyline.end;
 			gpu->polyline.end   = read_vertex(value);
 			gpu->polyline_unfinished = false;
-			draw_line(gpu->vram, gpu->polyline);
+			draw_line(gpu->vram, &gpu->polyline);
 		} else if ((value & 0x50005000) == 0x50005000) {
 			gpu->polyline_active = false;
 		} else if (gpu->polyline.shaded) {
@@ -434,7 +434,7 @@ void gpu_write_gp0(struct HakuyaCore *core, uint32_t address, uint32_t value, in
 		} else {
 			gpu->polyline.start = gpu->polyline.end;
 			gpu->polyline.end   = read_vertex(value);
-			draw_line(gpu->vram, gpu->polyline);
+			draw_line(gpu->vram, &gpu->polyline);
 		}
 		return;
 	}
@@ -572,7 +572,7 @@ static inline Color24 blend_texture(uint16_t tex_color, Color24 shade_color) {
 	return (Color24){ (uint8_t)r, (uint8_t)g, (uint8_t)b };
 }
 
-static inline uint16_t get_texel(uint16_t vram[512][1024], Vertex texpage, uint8_t u, uint8_t v, uint8_t bpp, const uint16_t *clut) {
+static inline uint16_t get_texel(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], Vertex texpage, uint8_t u, uint8_t v, uint8_t bpp, const uint16_t *clut) {
 	switch (bpp) {
 	case 4: {
 		uint16_t index = vram[texpage.y + v][texpage.x + (u >> 2)];
@@ -596,11 +596,11 @@ static inline uint16_t get_texel(uint16_t vram[512][1024], Vertex texpage, uint8
 	}
 }
 
-static inline void draw_rectangle(uint16_t vram[512][1024], RectanglePrimitive rectangle) {
+static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const RectanglePrimitive *rectangle) {
 	// Clamp to the dimensions of the canvas
-	Color24 color = rectangle.color;
-	Vertex pos  = rectangle.start;
-	Vertex size = rectangle.size;
+	Color24 color = rectangle->color;
+	Vertex pos  = rectangle->start;
+	Vertex size = rectangle->size;
 	Vertex end = (Vertex){
 		.x = pos.x + size.x,
 		.y = pos.y + size.y,
@@ -609,26 +609,26 @@ static inline void draw_rectangle(uint16_t vram[512][1024], RectanglePrimitive r
 	/* clamp_to_drawing_area(&pos); */
 	/* clamp_to_drawing_area(&end); */
 
-	if (!rectangle.textured) {
+	if (!rectangle->textured) {
 		for (int y = pos.y; y < end.y; y++)
 		for (int x = pos.x; x < end.x; x++)
-			gpu_put_pixel(&vram[y][x], color24to16(color), rectangle.blend_mode);
+			gpu_put_pixel(&vram[y][x], color24to16(color), rectangle->blend_mode);
 		return;
 	}
 
-	Vertex texpage = rectangle.texpage;
-	uint8_t bpp = rectangle.texture_bpp;
+	Vertex texpage = rectangle->texpage;
+	uint8_t bpp = rectangle->texture_bpp;
 	uint16_t clut[256];
 	switch (bpp) {
-	case 4: memcpy(clut, &vram[rectangle.clut.y][rectangle.clut.x], 32);  break;
-	case 8: memcpy(clut, &vram[rectangle.clut.y][rectangle.clut.x], 512); break;
+	case 4: memcpy(clut, &vram[rectangle->clut.y][rectangle->clut.x], 32);  break;
+	case 8: memcpy(clut, &vram[rectangle->clut.y][rectangle->clut.x], 512); break;
 	}
 
-	uint8_t u0 = (uint8_t)rectangle.uv.x;
+	uint8_t u0 = (uint8_t)rectangle->uv.x;
 	uint8_t u = u0;
-	uint8_t v = (uint8_t)rectangle.uv.y;
-	uint8_t u_dir = rectangle.x_flip ? (uint8_t)-1 : 1;
-	uint8_t v_dir = rectangle.y_flip ? (uint8_t)-1 : 1;
+	uint8_t v = (uint8_t)rectangle->uv.y;
+	uint8_t u_dir = rectangle->x_flip ? (uint8_t)-1 : 1;
+	uint8_t v_dir = rectangle->y_flip ? (uint8_t)-1 : 1;
 
 	for (int y = 0; y < size.y; y++, v += v_dir) {
 		u = u0;
@@ -636,14 +636,14 @@ static inline void draw_rectangle(uint16_t vram[512][1024], RectanglePrimitive r
 			uint16_t tex_color = get_texel(vram, texpage, u, v, bpp, clut);
 			uint16_t top_bit = tex_color & 0x8000u;
 
-			enum BlendMode blend_mode = rectangle.blend_mode;
+			enum BlendMode blend_mode = rectangle->blend_mode;
 			if (tex_color == 0) {
 				continue;
 			}
 			if (!top_bit) {
 				blend_mode = BLEND_NONE;
 			}
-			if (!rectangle.raw_texture) {
+			if (!rectangle->raw_texture) {
 				tex_color = color24to16(blend_texture(tex_color, color));
 				tex_color |= top_bit;
 			}
@@ -679,19 +679,19 @@ static inline int16_t abs16(int16_t x) {
 	return (x < 0) ? (int16_t)-x : x;
 }
 
-static inline void draw_line(uint16_t vram[512][1024], LinePrimitive line) {
-	Vertex  v0 = line.start;
-	Vertex  v1 = line.end;
-	Color24 c0 = line.color[0];
-	Color24 c1 = line.color[1];
+static inline void draw_line(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const LinePrimitive *line) {
+	Vertex  v0 = line->start;
+	Vertex  v1 = line->end;
+	Color24 c0 = line->color[0];
+	Color24 c1 = line->color[1];
 
 	Vertex delta = { .x = v1.x - v0.x, .y = v1.y - v0.y };
 	int16_t step = (abs16(delta.x) > abs16(delta.y)) ? abs16(delta.x) : abs16(delta.y);
 
 	// Degenerate case
 	if (step == 0) {
-		if (line.dithering) c0 = apply_dither24(v0.x, v0.y, c0);
-		gpu_put_pixel(&vram[v0.y][v0.x], color24to16(c0), line.blend_mode);
+		if (line->dithering) c0 = apply_dither24(v0.x, v0.y, c0);
+		gpu_put_pixel(&vram[v0.y][v0.x], color24to16(c0), line->blend_mode);
 		return;
 	}
 
@@ -702,16 +702,16 @@ static inline void draw_line(uint16_t vram[512][1024], LinePrimitive line) {
 		int16_t x = (int16_t)((float)v0.x + (float)i * step_x + 0.5f);
 		int16_t y = (int16_t)((float)v0.y + (float)i * step_y + 0.5f);
 		Color24 c = interpolate_color24(c0, c1, (float)i * step_c);
-		if (line.dithering) c = apply_dither24(x, y, c);
-		gpu_put_pixel(&vram[y][x], color24to16(c), line.blend_mode);
+		if (line->dithering) c = apply_dither24(x, y, c);
+		gpu_put_pixel(&vram[y][x], color24to16(c), line->blend_mode);
 	}
 }
 
-static inline uint16_t compute_tritexel(uint16_t vram[512][1024], const TrianglePrimitive *triangle, float a0, float a1, float a2) {
+static inline uint16_t compute_tritexel(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const TrianglePrimitive *triangle, const Vertex uv[3], float a0, float a1, float a2) {
 	uint8_t bpp = triangle->texture_bpp;
-	Vertex uv0 = triangle->uv[0];
-	Vertex uv1 = triangle->uv[1];
-	Vertex uv2 = triangle->uv[2];
+	Vertex uv0 = uv[0];
+	Vertex uv1 = uv[1];
+	Vertex uv2 = uv[2];
 	int u = uv0.x * a0 + uv1.x * a1 + uv2.x * a2;
 	int v = uv0.y * a0 + uv1.y * a1 + uv2.y * a2;
 	u &= 0xFF;
@@ -720,17 +720,18 @@ static inline uint16_t compute_tritexel(uint16_t vram[512][1024], const Triangle
 	return get_texel(vram, triangle->texpage, (uint8_t)u, (uint8_t)v, bpp, clut);
 }
 
-static inline void draw_triangle(uint16_t vram[512][1024], TrianglePrimitive triangle) {
-	Vertex v0 = triangle.vertex[0];
-	Vertex v1 = triangle.vertex[1];
-	Vertex v2 = triangle.vertex[2];
-	Color24 c0 = triangle.color[0];
-	Color24 c1 = triangle.color[1];
-	Color24 c2 = triangle.color[2];
-	bool shaded = triangle.shaded;
-	bool textured = triangle.textured;
-	bool raw_texture = triangle.raw_texture;
-	bool dithering = triangle.dithering;
+static inline void draw_triangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const TrianglePrimitive *triangle) {
+	Vertex v0 = triangle->vertex[0];
+	Vertex v1 = triangle->vertex[1];
+	Vertex v2 = triangle->vertex[2];
+	Vertex uv[3] = { triangle->uv[0], triangle->uv[1], triangle->uv[2] };
+	Color24 c0 = triangle->color[0];
+	Color24 c1 = triangle->color[1];
+	Color24 c2 = triangle->color[2];
+	bool shaded = triangle->shaded;
+	bool textured = triangle->textured;
+	bool raw_texture = triangle->raw_texture;
+	bool dithering = triangle->dithering;
 
 	// Computes the area of the triangle times 2 (used for shading)
 	int double_area = vec2_cross(
@@ -747,9 +748,9 @@ static inline void draw_triangle(uint16_t vram[512][1024], TrianglePrimitive tri
 		c0 = c1;
 		c1 = c_temp;
 		double_area *= -1;
-		Vertex uv_temp = triangle.uv[0];
-		triangle.uv[0] = triangle.uv[1];
-		triangle.uv[1] = uv_temp;
+		Vertex uv_temp = uv[0];
+		uv[0] = uv[1];
+		uv[1] = uv_temp;
 	}
 
 	// Compute the bounding box of the triangle
@@ -812,7 +813,7 @@ static inline void draw_triangle(uint16_t vram[512][1024], TrianglePrimitive tri
 				float a0 = (float)w1 / (float)double_area;
 				float a1 = (float)w2 / (float)double_area;
 				float a2 = (float)w0 / (float)double_area;
-				enum BlendMode blend_mode = triangle.blend_mode;
+				enum BlendMode blend_mode = triangle->blend_mode;
 
 				bool transparent = false;
 				Color24 base_color;
@@ -825,7 +826,7 @@ static inline void draw_triangle(uint16_t vram[512][1024], TrianglePrimitive tri
 				}
 
 				if (textured) {
-					uint16_t tex_color = compute_tritexel(vram, &triangle, a0, a1, a2);
+					uint16_t tex_color = compute_tritexel(vram, triangle, uv, a0, a1, a2);
 					uint16_t top_bit = tex_color & 0x8000u;
 					blend_mode = top_bit ? blend_mode : BLEND_NONE;
 					transparent = (tex_color == 0) ? true : false;

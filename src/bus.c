@@ -32,6 +32,7 @@ static inline void scratchpad_write(struct HakuyaCore *core, uint32_t address, u
 }
 
 static inline uint32_t expansion1_read(struct HakuyaCore *core, uint32_t address, int bytes) {
+	(void)core;
 	fprintf(stderr, "[WARNING] Ignoring read%-3d from %-12s at %08X (returning all 1's)\n",
 		bytes * 8, "EXPANSION1", address);
 	return 0xFFFFFFFF;

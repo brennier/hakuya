@@ -154,6 +154,7 @@ int main(int argc, char *argv[]) {
 		/* const SDL_FRect source_rectangle = { (float)x, (float)y, (float)width, (float)height }; */
 		const SDL_FRect source_rectangle = { 0.0f, 0.0f, (float)width, (float)height };
 		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint32_t) * FRAME_WIDTH);
+		SDL_RenderClear(app.renderer);
 		SDL_RenderTexture(app.renderer, app.screen_texture, &source_rectangle, NULL);
 		SDL_RenderPresent(app.renderer);
 	}

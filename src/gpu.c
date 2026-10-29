@@ -90,6 +90,16 @@ void gpu_render_vram(struct HakuyaCore *core, uint16_t *output_buffer) {
 	memcpy(output_buffer, core->gpu.vram, sizeof(core->gpu.vram));
 }
 
+static inline uint8_t vram_get_byte(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], int row, int col) {
+	row %= VRAM_HEIGHT;
+	col %= 2 * VRAM_WIDTH;
+	if (col % 2 == 0) {
+		return (uint8_t)(vram[row][col/2] & 0xFF);
+	} else {
+		return (uint8_t)(vram[row][col/2] >> 8);
+	}
+}
+
 void gpu_render_frame(struct HakuyaCore *core, uint32_t *output_buffer,
 		      int *width, int *height) {
 	if (!core->gpu.display_enabled) {
@@ -103,15 +113,27 @@ void gpu_render_frame(struct HakuyaCore *core, uint32_t *output_buffer,
 
 	Vertex start = core->gpu.display_area_start;
 	Vertex size  = core->gpu.display_area_size;
-
-	for (int y = 0; y < size.y; y++)
-	for (int x = 0; x < size.x; x++) {
-		uint32_t color = color16to32(core->gpu.vram[start.y + y][start.x + x]);
-		output_buffer[y * 640 + x] = color;
-	}
-
 	*width  = size.x;
 	*height = size.y;
+
+	if (core->gpu.color_mode_24bit) {
+		for (int y = 0; y < size.y; y++)
+		for (int x = 0; x < size.x; x++) {
+			int row = start.y + y;
+			int col = 2 * start.x + 3 * x;
+			uint8_t r = vram_get_byte(core->gpu.vram, row, col + 0);
+			uint8_t g = vram_get_byte(core->gpu.vram, row, col + 1);
+			uint8_t b = vram_get_byte(core->gpu.vram, row, col + 2);
+			uint32_t color = 0xFF000000 | (b << 16) | (g << 8) | r;
+			output_buffer[y * 640 + x] = color;
+		}
+	} else {
+		for (int y = 0; y < size.y; y++)
+		for (int x = 0; x < size.x; x++) {
+			uint16_t color = core->gpu.vram[(start.y + y) % VRAM_HEIGHT][(start.x + x) % VRAM_WIDTH];
+			output_buffer[y * 640 + x] = color16to32(color);
+		}
+	}
 }
 
 static inline Vertex read_vertex(uint32_t word) {

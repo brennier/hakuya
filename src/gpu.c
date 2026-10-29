@@ -10,7 +10,7 @@ enum MiscGPU0Command {
 	SET_GPU_IRQ_FLAG      = 0x1F,
 	SET_DRAWING_SETTINGS  = 0xE1,
 	SET_DRAWING_MASK      = 0xE2,
-	SET_DRAWING_AREA_BEG  = 0xE3,
+	SET_DRAWING_AREA_START = 0xE3,
 	SET_DRAWING_AREA_END  = 0xE4,
 	SET_DRAWING_OFFSET    = 0xE5,
 	SET_MASK_BIT_SETTINGS = 0xE6,
@@ -165,6 +165,8 @@ static void gpu_execute_polygon_command(struct HakuyaGPU *gpu, uint32_t command,
 		.shaded    = (command >> 28) & 1u,
 		.textured  = (command >> 26) & 1u,
 		.raw_texture = (command >> 24) & 1u,
+		.drawing_area_start = gpu->drawing_area_start,
+		.drawing_area_end = gpu->drawing_area_end,
 	};
 
 	if (!triangle.textured) {
@@ -236,6 +238,8 @@ static void gpu_execute_line_command(struct HakuyaGPU *gpu, uint32_t command, ui
 		.color     = { read_color(arguments[0]) },
 		.start     = read_vertex(arguments[1]),
 		.shaded    = (command >> 28) & 1u,
+		.drawing_area_start = gpu->drawing_area_start,
+		.drawing_area_end = gpu->drawing_area_end,
 	};
 	line.dithering = gpu->dithering_enabled;
 	if (line.shaded) {
@@ -275,6 +279,8 @@ static void gpu_execute_rectangle_command(struct HakuyaGPU *gpu, uint32_t comman
 		.size      = rectangle_size[(command >> 27) & 3u],
 		.textured  = (command >> 26) & 1u,
 		.raw_texture = (command >> 24) & 1u,
+		.drawing_area_start = gpu->drawing_area_start,
+		.drawing_area_end = gpu->drawing_area_end,
 	};
 	if (!rectangle.textured) {
 		rectangle.raw_texture = false;
@@ -364,8 +370,8 @@ static void gpu_execute_command(struct HakuyaGPU *gpu, uint32_t command) {
 		gpu->draw_mode_settings = gpu->word_buffer[0];
 		gpu->dithering_enabled = (gpu->word_buffer[0]) & (1u << 9);
 		break;
-	case SET_DRAWING_AREA_BEG:
-		gpu->drawing_area_beg = (Vertex){
+	case SET_DRAWING_AREA_START:
+		gpu->drawing_area_start = (Vertex){
 			.x = (gpu->word_buffer[0] >>  0) & 0x3FF,
 			.y = (gpu->word_buffer[0] >> 10) & 0x1FF,
 		};
@@ -550,12 +556,16 @@ static inline void gpu_put_pixel(uint16_t *pixel, uint16_t color16, enum BlendMo
 	}
 }
 
-static inline void clamp_to_drawing_area(struct HakuyaGPU *gpu, Vertex *v) {
-	if      (v->x < gpu->drawing_area_beg.x) v->x = gpu->drawing_area_beg.x;
-	else if (v->x > gpu->drawing_area_end.x) v->x = gpu->drawing_area_end.x;
+static inline void clamp_to_drawing_area(Vertex *v, Vertex drawing_area_start, Vertex drawing_area_end) {
+	if      (v->x < drawing_area_start.x) v->x = drawing_area_start.x;
+	else if (v->x > drawing_area_end.x) v->x = drawing_area_end.x;
 
-	if      (v->y < gpu->drawing_area_beg.y) v->y = gpu->drawing_area_beg.y;
-	else if (v->y > gpu->drawing_area_end.y) v->y = gpu->drawing_area_end.y;
+	if      (v->y < drawing_area_start.y) v->y = drawing_area_start.y;
+	else if (v->y > drawing_area_end.y) v->y = drawing_area_end.y;
+}
+
+static inline bool is_vertex_in_rectangle(Vertex v, Vertex rect_start, Vertex rect_end) {
+	return (v.x >= rect_start.x && v.x <= rect_end.x && v.y >= rect_start.y && v.y <= rect_end.y);
 }
 
 static inline Color24 blend_texture(uint16_t tex_color, Color24 shade_color) {
@@ -601,18 +611,16 @@ static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const 
 	Color24 color = rectangle->color;
 	Vertex pos  = rectangle->start;
 	Vertex size = rectangle->size;
-	Vertex end = (Vertex){
-		.x = pos.x + size.x,
-		.y = pos.y + size.y,
-	};
-
-	/* clamp_to_drawing_area(&pos); */
-	/* clamp_to_drawing_area(&end); */
 
 	if (!rectangle->textured) {
-		for (int y = pos.y; y < end.y; y++)
-		for (int x = pos.x; x < end.x; x++)
-			gpu_put_pixel(&vram[y][x], color24to16(color), rectangle->blend_mode);
+		for (int y = pos.y; y < pos.y + size.y; y++)
+		for (int x = pos.x; x < pos.x + size.x; x++)
+			if (is_vertex_in_rectangle(
+				    (Vertex){ x, y },
+				    rectangle->drawing_area_start,
+				    rectangle->drawing_area_end)) {
+				gpu_put_pixel(&vram[y][x], color24to16(color), rectangle->blend_mode);
+			}
 		return;
 	}
 
@@ -624,15 +632,20 @@ static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const 
 	case 8: memcpy(clut, &vram[rectangle->clut.y][rectangle->clut.x], 512); break;
 	}
 
-	uint8_t u0 = (uint8_t)rectangle->uv.x;
-	uint8_t u = u0;
-	uint8_t v = (uint8_t)rectangle->uv.y;
 	uint8_t u_dir = rectangle->x_flip ? (uint8_t)-1 : 1;
 	uint8_t v_dir = rectangle->y_flip ? (uint8_t)-1 : 1;
+	uint8_t u0 = (uint8_t)rectangle->uv.x;
+	uint8_t v  = (uint8_t)rectangle->uv.y;
 
-	for (int y = 0; y < size.y; y++, v += v_dir) {
-		u = u0;
-		for (int x = 0; x < size.x; x++, u += u_dir) {
+	for (int y = pos.y; y < pos.y + size.y; y++, v += v_dir) {
+		uint8_t u = u0;
+		for (int x = pos.x; x < pos.x + size.x; x++, u += u_dir) {
+			if (!is_vertex_in_rectangle(
+				    (Vertex){ x, y },
+				    rectangle->drawing_area_start,
+				    rectangle->drawing_area_end)) {
+				continue;
+			}
 			uint16_t tex_color = get_texel(vram, texpage, u, v, bpp, clut);
 			uint16_t top_bit = tex_color & 0x8000u;
 
@@ -647,7 +660,7 @@ static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const 
 				tex_color = color24to16(blend_texture(tex_color, color));
 				tex_color |= top_bit;
 			}
-			uint16_t *pixel = &vram[pos.y + y][pos.x + x];
+			uint16_t *pixel = &vram[y][x];
 			gpu_put_pixel(pixel, tex_color, blend_mode);
 		}
 	}
@@ -690,6 +703,8 @@ static inline void draw_line(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const LineP
 
 	// Degenerate case
 	if (step == 0) {
+		if (!is_vertex_in_rectangle(v0, line->drawing_area_start, line->drawing_area_end))
+			return;
 		if (line->dithering) c0 = apply_dither24(v0.x, v0.y, c0);
 		gpu_put_pixel(&vram[v0.y][v0.x], color24to16(c0), line->blend_mode);
 		return;
@@ -699,11 +714,16 @@ static inline void draw_line(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const LineP
 	float step_y = (float)delta.y / (float)step;
 	float step_c = 1.0f / (float)step;
 	for (int i = 0; i <= step; i++) {
-		int16_t x = (int16_t)((float)v0.x + (float)i * step_x + 0.5f);
-		int16_t y = (int16_t)((float)v0.y + (float)i * step_y + 0.5f);
+		Vertex v = {
+			.x = (int16_t)((float)v0.x + (float)i * step_x + 0.5f),
+			.y = (int16_t)((float)v0.y + (float)i * step_y + 0.5f),
+		};
+		if (!is_vertex_in_rectangle(v, line->drawing_area_start, line->drawing_area_end)) {
+			continue;
+		}
 		Color24 c = interpolate_color24(c0, c1, (float)i * step_c);
-		if (line->dithering) c = apply_dither24(x, y, c);
-		gpu_put_pixel(&vram[y][x], color24to16(c), line->blend_mode);
+		if (line->dithering) c = apply_dither24(v.x, v.y, c);
+		gpu_put_pixel(&vram[v.y][v.x], color24to16(c), line->blend_mode);
 	}
 }
 
@@ -763,9 +783,9 @@ static inline void draw_triangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const T
 		.y = find_max(v0.y, v1.y, v2.y),
 	};
 
-	/* // Clamp to the dimensions of the canvas */
-	/* clamp_to_drawing_area(&start); */
-	/* clamp_to_drawing_area(&end); */
+	// Clamp to the drawing area
+	clamp_to_drawing_area(&start, triangle->drawing_area_start, triangle->drawing_area_end);
+	clamp_to_drawing_area(&end, triangle->drawing_area_start, triangle->drawing_area_end);
 
 	// Compute the w0 starts and the x/y deltas
 	int w0_start = vec2_cross(

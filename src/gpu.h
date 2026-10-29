@@ -34,6 +34,7 @@ typedef struct {
 	Vertex   uv[3];
 	Vertex   clut;
 	Vertex   texpage;
+	Vertex   drawing_area_start, drawing_area_end;
 	uint8_t  texture_bpp;
 	uint8_t  blend_mode;
 	bool     shaded, textured, raw_texture, dithering;
@@ -46,6 +47,7 @@ typedef struct {
 	Vertex   uv;
 	Vertex   texpage;
 	Vertex   clut;
+	Vertex   drawing_area_start, drawing_area_end;
 	uint8_t  texture_bpp;
 	uint8_t  blend_mode;
 	bool     x_flip, y_flip, textured, raw_texture;
@@ -55,6 +57,7 @@ typedef struct {
 	Color24 color[2];
 	Vertex  start;
 	Vertex  end;
+	Vertex  drawing_area_start, drawing_area_end;
 	uint8_t blend_mode;
 	bool    shaded, dithering;
 } LinePrimitive;
@@ -70,7 +73,7 @@ struct HakuyaGPU {
 
 	Vertex display_area_start;
 	Vertex display_area_size;
-	Vertex drawing_area_beg;
+	Vertex drawing_area_start;
 	Vertex drawing_area_end;
 
 	uint32_t draw_mode_settings;

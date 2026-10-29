@@ -86,23 +86,23 @@ static inline uint32_t color16to32(uint16_t c) {
 	return result | ((result >> 5) & 0x00070707u);
 }
 
-void gpu_render_vram_u32(struct HakuyaCore *core, uint32_t *output_buffer) {
-	uint16_t *flat_vram = (uint16_t*)core->gpu.vram;
-	for (int i = 0; i < VRAM_WIDTH * VRAM_HEIGHT; i++)
-		output_buffer[i] = color16to32(flat_vram[i]);
+void gpu_render_vram(struct HakuyaCore *core, uint16_t *output_buffer) {
+	memcpy(output_buffer, core->gpu.vram, sizeof(core->gpu.vram));
 }
 
-void gpu_render_vram_u16(struct HakuyaCore *core, uint16_t *output_buffer) {
-	uint16_t *flat_vram = (uint16_t*)core->gpu.vram;
-	for (int i = 0; i < VRAM_WIDTH * VRAM_HEIGHT; i++)
-		output_buffer[i] = flat_vram[i];
-}
+void gpu_render_frame(struct HakuyaCore *core, uint32_t *output_buffer,
+		      int *width, int *height) {
+	Vertex start = core->gpu.display_area_start;
+	Vertex size  = core->gpu.display_area_size;
 
-void gpu_get_display_area(struct HakuyaCore *core, int *x, int *y, int *width, int *height) {
-	*x = core->gpu.display_area_start.x;
-	*y = core->gpu.display_area_start.y;
-	*width  = core->gpu.display_area_size.x;
-	*height = core->gpu.display_area_size.y;
+	for (int y = 0; y < size.y; y++)
+	for (int x = 0; x < size.x; x++) {
+		uint32_t color = color16to32(core->gpu.vram[start.y + y][start.x + x]);
+		output_buffer[y * 640 + x] = color;
+	}
+
+	*width  = size.x;
+	*height = size.y;
 }
 
 static inline Vertex read_vertex(uint32_t word) {

@@ -9,11 +9,11 @@
 #define EXE_FILE  "./exe/psxtest_cpu.exe"
 
 #define WINDOW_TITLE "Hakuya PSX Emulator"
+#define FRAME_WIDTH  640
+#define FRAME_HEIGHT 480
 #define SCALE_FACTOR 1
-#define WINDOW_WIDTH  (1024 * SCALE_FACTOR)
-#define WINDOW_HEIGHT (512 * SCALE_FACTOR)
-#define VRAM_WIDTH  1024
-#define VRAM_HEIGHT 512
+#define WINDOW_WIDTH  (FRAME_WIDTH  * SCALE_FACTOR)
+#define WINDOW_HEIGHT (FRAME_HEIGHT * SCALE_FACTOR)
 #define APP_VERSION "0.1"
 
 // Approximately 33 MHz
@@ -56,9 +56,9 @@ static bool hakuya_setup(struct HakuyaApp *app) {
 	}
 
 	app->screen_texture = SDL_CreateTexture(app->renderer,
-						SDL_PIXELFORMAT_XBGR1555,
+						SDL_PIXELFORMAT_XBGR8888,
 						SDL_TEXTUREACCESS_STREAMING,
-						VRAM_WIDTH, VRAM_HEIGHT);
+						FRAME_WIDTH, FRAME_HEIGHT);
 	if (!app->screen_texture) {
 		fprintf(stderr, "Error creating screen texture: %s\n", SDL_GetError());
 		return false;
@@ -134,9 +134,10 @@ int main(int argc, char *argv[]) {
 		hakuya_start_exe(app.core, app.exe_data, app.exe_length);
 	}
 
-	uint16_t frame[VRAM_HEIGHT][VRAM_WIDTH];
+	static uint32_t frame[FRAME_HEIGHT][FRAME_WIDTH] = { 0 };
+	int width, height;
 	bool running = true;
-	int x = 0, y = 0, width = VRAM_WIDTH, height = VRAM_HEIGHT;
+	/* int x = 0, y = 0, width = VRAM_WIDTH, height = VRAM_HEIGHT; */
 	while (running) {
 		while (SDL_PollEvent(&app.event)) {
 			if (app.event.type == SDL_EVENT_QUIT) {
@@ -148,10 +149,11 @@ int main(int argc, char *argv[]) {
 			hakuya_core_tick(app.core);
 		}
 
-		hakuya_render_vram_u16(app.core, (uint16_t*)frame);
-		/* hakuya_get_display_area(app.core, &x, &y, &width, &height); */
-		const SDL_FRect source_rectangle = { (float)x, (float)y, (float)width, (float)height };
-		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint16_t) * VRAM_WIDTH);
+		hakuya_render_frame(app.core, (uint32_t*)frame, &width, &height);
+		/* hakuya_render_vram(app.core, (uint16_t*)frame); */
+		/* const SDL_FRect source_rectangle = { (float)x, (float)y, (float)width, (float)height }; */
+		const SDL_FRect source_rectangle = { 0.0f, 0.0f, (float)width, (float)height };
+		SDL_UpdateTexture(app.screen_texture, NULL, frame, sizeof(uint32_t) * FRAME_WIDTH);
 		SDL_RenderTexture(app.renderer, app.screen_texture, &source_rectangle, NULL);
 		SDL_RenderPresent(app.renderer);
 	}

@@ -58,14 +58,10 @@ void hakuya_start_exe(struct HakuyaCore *core, uint8_t *exe_data, size_t exe_len
 	core->cpu.next_next_pc = initial_pc + 8;
 }
 
-void hakuya_render_vram_u16(struct HakuyaCore *core, uint16_t *output_buffer) {
-	gpu_render_vram_u16(core, output_buffer);
+void hakuya_render_vram(struct HakuyaCore *core, uint16_t *output_buffer) {
+	gpu_render_vram(core, output_buffer);
 }
 
-void hakuya_render_vram_u32(struct HakuyaCore *core, uint32_t *output_buffer) {
-	gpu_render_vram_u32(core, output_buffer);
-}
-
-void hakuya_get_display_area(struct HakuyaCore *core, int *x, int *y, int *width, int *height) {
-	gpu_get_display_area(core, x, y, width, height);
+void hakuya_render_frame(struct HakuyaCore *core, uint32_t *output_buffer, int *width, int *height) {
+	gpu_render_frame(core, output_buffer, width, height);
 }

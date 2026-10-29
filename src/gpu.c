@@ -637,7 +637,6 @@ static inline uint16_t get_texel(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], Vertex 
 }
 
 static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const RectanglePrimitive *rectangle) {
-	// Clamp to the dimensions of the canvas
 	Color24 color = rectangle->color;
 	Vertex pos  = rectangle->start;
 	Vertex size = rectangle->size;
@@ -686,6 +685,12 @@ static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const 
 				    rectangle->drawing_area_end)) {
 				continue;
 			}
+
+			uint16_t *pixel = &vram[y][x];
+			if (rectangle->mask_bit_check && (*pixel & 0x8000)) {
+				continue;
+			}
+
 			uint16_t tex_color = get_texel(vram, texpage, u, v, bpp, clut);
 			uint16_t top_bit = tex_color & 0x8000u;
 
@@ -705,10 +710,6 @@ static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const 
 				tex_color |= 0x8000;
 			}
 
-			uint16_t *pixel = &vram[y][x];
-			if (rectangle->mask_bit_check && (*pixel & 0x8000)) {
-				continue;
-			}
 			gpu_put_pixel(pixel, tex_color, blend_mode);
 		}
 	}
@@ -884,61 +885,63 @@ static inline void draw_triangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const T
 		int w1 = w1_start;
 		int w2 = w2_start;
 		uint16_t *pixel = pixel_start;
-		for (int16_t x = start.x; x <= end.x; x++) {
+		for (int16_t x = start.x; x <= end.x;
+		     x++, w0 += w0_delta_x, w1 += w1_delta_x, w2 += w2_delta_x, pixel++) {
 			bool inside_triangle = w0 > 0 && w1 > 0 && w2 > 0;
 			if (inside_triangle) {
 				reached_triangle = true;
-				float a0 = (float)w1 / (float)double_area;
-				float a1 = (float)w2 / (float)double_area;
-				float a2 = (float)w0 / (float)double_area;
-				enum BlendMode blend_mode = triangle->blend_mode;
-
-				bool transparent = false;
-				Color24 base_color;
-				uint16_t final_color;
-
-				if (shaded && !raw_texture) {
-					base_color = blend_triangle24(c0, c1, c2, a0, a1, a2);
-				} else {
-					base_color = c0;
-				}
-
-				if (textured) {
-					uint16_t tex_color = compute_tritexel(vram, triangle, uv, a0, a1, a2);
-					uint16_t top_bit = tex_color & 0x8000u;
-					blend_mode = top_bit ? blend_mode : BLEND_NONE;
-					transparent = (tex_color == 0) ? true : false;
-					if (raw_texture) {
-						final_color = tex_color;
-					} else {
-						Color24 blended_color = blend_texture(tex_color, base_color);
-						if (dithering) {
-							blended_color = apply_dither24(x, y, blended_color);
-						}
-						final_color = color24to16(blended_color);
-						final_color |= top_bit;
-					}
-				} else {
-					if (dithering) {
-						base_color = apply_dither24(x, y, base_color);
-					}
-					final_color = color24to16(base_color);
-				}
-
-				if (triangle->mask_bit_set) {
-					final_color |= 0x8000;
-				}
-
-				if (!transparent && !(triangle->mask_bit_check && (*pixel & 0x8000))) {
-					gpu_put_pixel(pixel, final_color, blend_mode);
-				}
 			} else if (reached_triangle) {
 				break;
+			} else {
+				continue;
 			}
-			w0 += w0_delta_x;
-			w1 += w1_delta_x;
-			w2 += w2_delta_x;
-			pixel++;
+
+			if (triangle->mask_bit_check && (*pixel & 0x8000)) {
+				continue;
+			}
+
+			float a0 = (float)w1 / (float)double_area;
+			float a1 = (float)w2 / (float)double_area;
+			float a2 = (float)w0 / (float)double_area;
+			enum BlendMode blend_mode = triangle->blend_mode;
+
+			Color24 base_color;
+			uint16_t final_color;
+
+			if (shaded && !raw_texture) {
+				base_color = blend_triangle24(c0, c1, c2, a0, a1, a2);
+			} else {
+				base_color = c0;
+			}
+
+			if (textured) {
+				uint16_t tex_color = compute_tritexel(vram, triangle, uv, a0, a1, a2);
+				uint16_t top_bit = tex_color & 0x8000u;
+				blend_mode = top_bit ? blend_mode : BLEND_NONE;
+				if (tex_color == 0)
+					continue;
+				if (raw_texture) {
+					final_color = tex_color;
+				} else {
+					Color24 blended_color = blend_texture(tex_color, base_color);
+					if (dithering) {
+						blended_color = apply_dither24(x, y, blended_color);
+					}
+					final_color = color24to16(blended_color);
+					final_color |= top_bit;
+				}
+			} else {
+				if (dithering) {
+					base_color = apply_dither24(x, y, base_color);
+				}
+				final_color = color24to16(base_color);
+			}
+
+			if (triangle->mask_bit_set) {
+				final_color |= 0x8000;
+			}
+
+			gpu_put_pixel(pixel, final_color, blend_mode);
 		}
 		w0_start += w0_delta_y;
 		w1_start += w1_delta_y;

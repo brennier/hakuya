@@ -38,6 +38,7 @@ typedef struct {
 	uint8_t  texture_bpp;
 	uint8_t  blend_mode;
 	bool     shaded, textured, raw_texture, dithering;
+	bool     mask_bit_set, mask_bit_check;
 } TrianglePrimitive;
 
 typedef struct {
@@ -51,6 +52,7 @@ typedef struct {
 	uint8_t  texture_bpp;
 	uint8_t  blend_mode;
 	bool     x_flip, y_flip, textured, raw_texture;
+	bool     mask_bit_set, mask_bit_check;
 } RectanglePrimitive;
 
 typedef struct {
@@ -60,6 +62,7 @@ typedef struct {
 	Vertex  drawing_area_start, drawing_area_end;
 	uint8_t blend_mode;
 	bool    shaded, dithering;
+	bool    mask_bit_set, mask_bit_check;
 } LinePrimitive;
 
 struct HakuyaGPU {
@@ -75,6 +78,10 @@ struct HakuyaGPU {
 	Vertex display_area_size;
 	Vertex drawing_area_start;
 	Vertex drawing_area_end;
+	bool color_mode_24bit;
+
+	bool mask_bit_set;
+	bool mask_bit_check;
 
 	uint32_t draw_mode_settings;
 	bool dithering_enabled;

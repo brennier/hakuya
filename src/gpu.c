@@ -166,7 +166,9 @@ static void gpu_execute_polygon_command(struct HakuyaGPU *gpu, uint32_t command,
 		.textured  = (command >> 26) & 1u,
 		.raw_texture = (command >> 24) & 1u,
 		.drawing_area_start = gpu->drawing_area_start,
-		.drawing_area_end = gpu->drawing_area_end,
+		.drawing_area_end   = gpu->drawing_area_end,
+		.mask_bit_set   = gpu->mask_bit_set,
+		.mask_bit_check = gpu->mask_bit_check,
 	};
 
 	if (!triangle.textured) {
@@ -239,7 +241,9 @@ static void gpu_execute_line_command(struct HakuyaGPU *gpu, uint32_t command, ui
 		.start     = read_vertex(arguments[1]),
 		.shaded    = (command >> 28) & 1u,
 		.drawing_area_start = gpu->drawing_area_start,
-		.drawing_area_end = gpu->drawing_area_end,
+		.drawing_area_end   = gpu->drawing_area_end,
+		.mask_bit_set   = gpu->mask_bit_set,
+		.mask_bit_check = gpu->mask_bit_check,
 	};
 	line.dithering = gpu->dithering_enabled;
 	if (line.shaded) {
@@ -280,7 +284,9 @@ static void gpu_execute_rectangle_command(struct HakuyaGPU *gpu, uint32_t comman
 		.textured  = (command >> 26) & 1u,
 		.raw_texture = (command >> 24) & 1u,
 		.drawing_area_start = gpu->drawing_area_start,
-		.drawing_area_end = gpu->drawing_area_end,
+		.drawing_area_end   = gpu->drawing_area_end,
+		.mask_bit_set   = gpu->mask_bit_set,
+		.mask_bit_check = gpu->mask_bit_check,
 	};
 	if (!rectangle.textured) {
 		rectangle.raw_texture = false;
@@ -330,8 +336,16 @@ static void gpu_execute_command(struct HakuyaGPU *gpu, uint32_t command) {
 		if (size.x == 0) size.x = 0x400;
 		if (size.y == 0) size.y = 0x200;
 		for (int y = 0; y < size.y; y++)
-			for (int x = 0; x < size.x; x++)
-				gpu->vram[dest.y + y][dest.x + x] = gpu->vram[src.y + y][src.x + x];
+		for (int x = 0; x < size.x; x++) {
+			uint16_t *dest_pixel = &gpu->vram[dest.y + y][dest.x + x];
+			if (gpu->mask_bit_check && (*dest_pixel & 0x8000))
+				continue;
+			uint16_t src_pixel = gpu->vram[src.y + y][src.x + x];
+			if (gpu->mask_bit_set) {
+				src_pixel |= 0x8000;
+			}
+			*dest_pixel = src_pixel;
+		}
 		return;
 	}
 	case 5: { // CPU-to-VRAM copy
@@ -362,8 +376,8 @@ static void gpu_execute_command(struct HakuyaGPU *gpu, uint32_t command) {
 		size.x += 0x0F;
 		size.x &= ~0x0F;
 		for (int y = 0; y < size.y; y++)
-		for (int x = 0; x < size.x; x++)
-			gpu->vram[pos.y + y][pos.x + x] = color16;
+			for (int x = 0; x < size.x; x++)
+				gpu->vram[pos.y + y][pos.x + x] = color16;
 		break;
 	}
 	case SET_DRAWING_SETTINGS:
@@ -381,6 +395,10 @@ static void gpu_execute_command(struct HakuyaGPU *gpu, uint32_t command) {
 			.x = (gpu->word_buffer[0] >>  0) & 0x3FF,
 			.y = (gpu->word_buffer[0] >> 10) & 0x1FF,
 		};
+		break;
+	case SET_MASK_BIT_SETTINGS:
+		gpu->mask_bit_set   = gpu->word_buffer[0] & 0x01;
+		gpu->mask_bit_check = gpu->word_buffer[0] & 0x02;
 		break;
 	}
 }
@@ -448,7 +466,13 @@ void gpu_write_gp0(struct HakuyaCore *core, uint32_t address, uint32_t value, in
 	if (gpu->cpu_to_vram_copy_mode) {
 		uint16_t color0 = (uint16_t)(value & 0xFFFF);
 		uint16_t color1 = (uint16_t)(value >> 16);
-		gpu->vram[gpu->copy_current.y][gpu->copy_current.x] = color0;
+		if (gpu->mask_bit_set) {
+			color0 |= 0x8000;
+			color1 |= 0x8000;
+		}
+		uint16_t *dest = &gpu->vram[gpu->copy_current.y][gpu->copy_current.x];
+		if (!(gpu->mask_bit_check && (*dest & 0x8000)))
+			*dest= color0;
 		gpu->copy_current.x++;
 		if (gpu->copy_current.x == gpu->copy_end.x) {
 			gpu->copy_current.x = gpu->copy_start.x;
@@ -458,7 +482,9 @@ void gpu_write_gp0(struct HakuyaCore *core, uint32_t address, uint32_t value, in
 			gpu->cpu_to_vram_copy_mode = false;
 			return;
 		}
-		gpu->vram[gpu->copy_current.y][gpu->copy_current.x] = color1;
+		dest = &gpu->vram[gpu->copy_current.y][gpu->copy_current.x];
+		if (!(gpu->mask_bit_check && (*dest & 0x8000)))
+			*dest= color1;
 		gpu->copy_current.x++;
 		if (gpu->copy_current.x == gpu->copy_end.x) {
 			gpu->copy_current.x = gpu->copy_start.x;
@@ -502,6 +528,8 @@ void gpu_write_gp1(struct HakuyaCore *core, uint32_t address, uint32_t value, in
 			static const int16_t widths[4] = { 256, 320, 512, 640 };
 			gpu->display_area_size.x = widths[value & 0x03];
 		}
+
+		gpu->color_mode_24bit = value & 0x10;
 
 		if (value & 0x04) {
 			gpu->display_area_size.y = 480;
@@ -554,6 +582,8 @@ static inline void gpu_put_pixel(uint16_t *pixel, uint16_t color16, enum BlendMo
 	case BLEND_SUBTRACT: *pixel = blend_subtract16(*pixel, color16); break;
 	case BLEND_NONE:     *pixel = color16; break;
 	}
+	// Put back the top bit after blending
+	*pixel = (*pixel & 0x7FFF) | (color16 & 0x8000);
 }
 
 static inline void clamp_to_drawing_area(Vertex *v, Vertex drawing_area_start, Vertex drawing_area_end) {
@@ -614,13 +644,23 @@ static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const 
 
 	if (!rectangle->textured) {
 		for (int y = pos.y; y < pos.y + size.y; y++)
-		for (int x = pos.x; x < pos.x + size.x; x++)
-			if (is_vertex_in_rectangle(
+		for (int x = pos.x; x < pos.x + size.x; x++) {
+			if (!is_vertex_in_rectangle(
 				    (Vertex){ x, y },
 				    rectangle->drawing_area_start,
 				    rectangle->drawing_area_end)) {
-				gpu_put_pixel(&vram[y][x], color24to16(color), rectangle->blend_mode);
+				continue;
 			}
+			uint16_t *pixel = &vram[y][x];
+			if (rectangle->mask_bit_check && (*pixel & 0x8000)) {
+				continue;
+			}
+			uint16_t color16 = color24to16(color);
+			if (rectangle->mask_bit_set) {
+				color16 |= 0x8000;
+			}
+			gpu_put_pixel(pixel, color16, rectangle->blend_mode);
+		}
 		return;
 	}
 
@@ -660,7 +700,15 @@ static inline void draw_rectangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const 
 				tex_color = color24to16(blend_texture(tex_color, color));
 				tex_color |= top_bit;
 			}
+
+			if (rectangle->mask_bit_set) {
+				tex_color |= 0x8000;
+			}
+
 			uint16_t *pixel = &vram[y][x];
+			if (rectangle->mask_bit_check && (*pixel & 0x8000)) {
+				continue;
+			}
 			gpu_put_pixel(pixel, tex_color, blend_mode);
 		}
 	}
@@ -721,9 +769,19 @@ static inline void draw_line(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const LineP
 		if (!is_vertex_in_rectangle(v, line->drawing_area_start, line->drawing_area_end)) {
 			continue;
 		}
+
+		uint16_t *pixel = &vram[v.y][v.x];
+		if (line->mask_bit_check && (*pixel & 0x8000)) {
+			continue;
+		}
+
 		Color24 c = interpolate_color24(c0, c1, (float)i * step_c);
 		if (line->dithering) c = apply_dither24(v.x, v.y, c);
-		gpu_put_pixel(&vram[v.y][v.x], color24to16(c), line->blend_mode);
+		uint16_t color16 = color24to16(c);
+		if (line->mask_bit_set) {
+			color16 |= 0x8000;
+		}
+		gpu_put_pixel(pixel, color16, line->blend_mode);
 	}
 }
 
@@ -867,7 +925,11 @@ static inline void draw_triangle(uint16_t vram[VRAM_HEIGHT][VRAM_WIDTH], const T
 					final_color = color24to16(base_color);
 				}
 
-				if (!transparent) {
+				if (triangle->mask_bit_set) {
+					final_color |= 0x8000;
+				}
+
+				if (!transparent && !(triangle->mask_bit_check && (*pixel & 0x8000))) {
 					gpu_put_pixel(pixel, final_color, blend_mode);
 				}
 			} else if (reached_triangle) {

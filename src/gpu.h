@@ -79,6 +79,7 @@ struct HakuyaGPU {
 	Vertex drawing_area_start;
 	Vertex drawing_area_end;
 	bool color_mode_24bit;
+	bool display_enabled;
 
 	bool mask_bit_set;
 	bool mask_bit_check;

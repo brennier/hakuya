@@ -92,6 +92,15 @@ void gpu_render_vram(struct HakuyaCore *core, uint16_t *output_buffer) {
 
 void gpu_render_frame(struct HakuyaCore *core, uint32_t *output_buffer,
 		      int *width, int *height) {
+	if (!core->gpu.display_enabled) {
+		for (int i = 0; i < 640 * 480; i++) {
+			output_buffer[i] = 0;
+		}
+		*width = 0;
+		*height = 0;
+		return;
+	}
+
 	Vertex start = core->gpu.display_area_start;
 	Vertex size  = core->gpu.display_area_size;
 
@@ -517,6 +526,9 @@ void gpu_write_gp1(struct HakuyaCore *core, uint32_t address, uint32_t value, in
 	(void)bytes;
 	struct HakuyaGPU *gpu = &core->gpu;
 	switch (value >> 24) {
+	case 0x03:
+		gpu->display_enabled = !(value & 0x01);
+		break;
 	case 0x05:
 		gpu->display_area_start.x = (value >>  0) & 0x3FF;
 		gpu->display_area_start.y = (value >> 10) & 0x1FF;

@@ -5,8 +5,26 @@
 
 struct HakuyaCore;
 
+struct DMAChannel {
+	uint32_t start;
+	uint32_t blocks;
+	uint32_t control;
+};
+
+enum DMAChannelName {
+	DMA_MDEC_IN = 0,
+	DMA_MDEC_OUT,
+	DMA_GPU,
+	DMA_CDROM,
+	DMA_SPU,
+	DMA_PIO,
+	DMA_OTC,
+};
+
 struct HakuyaDMA {
-	uint32_t registers[32];
+	struct DMAChannel channel[7]; // indexed by channel number
+	uint32_t control;
+	uint32_t interrupt;
 };
 
 void dma_init(struct HakuyaCore *core);

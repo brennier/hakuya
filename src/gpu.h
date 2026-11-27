@@ -103,4 +103,4 @@ void gpu_write_gp1(struct HakuyaCore *core, uint32_t address, uint32_t value, in
 void gpu_render_vram(struct HakuyaCore *core, uint16_t *output_buffer);
 void gpu_render_frame(struct HakuyaCore *core, uint32_t *output_buffer, int *width, int *height);
 
-#endif // HAGKUYA_GPU_H
+#endif // HAKUYA_GPU_H

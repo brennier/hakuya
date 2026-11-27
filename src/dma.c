@@ -51,12 +51,35 @@ static inline void dma_port_write(struct HakuyaCore *core, enum DMAChannelName c
 	}
 }
 
+static inline uint32_t dma_port_read(struct HakuyaCore *core, enum DMAChannelName ch) {
+	switch (ch) {
+	case DMA_GPU:
+		return bus_read32(core, GPU0_ADDRESS);
+	default:
+		fprintf(stderr, "Error: The channel %d does not have a read port implemented\n", ch);
+		return 0;
+	}
+}
+
+static inline uint32_t dma_transfer_length(enum SyncMode mode, uint32_t blocks_reg) {
+	if (mode == SYNC_IMMEDIATE) {
+		uint32_t word_count = blocks_reg & 0xFFFFu;
+		if (word_count == 0)
+			word_count = 0x10000u;
+		return word_count;
+	} else {
+		uint32_t block_size  = blocks_reg & 0xFFFFu;
+		uint32_t block_count = blocks_reg >> 16;
+		return block_size * block_count;
+	}
+}
+
 static inline void dma_trigger(struct HakuyaCore *core, enum DMAChannelName ch) {
 	uint32_t address   = core->dma.channel[ch].start & 0x00FFFFFCu;
 	uint32_t blocks    = core->dma.channel[ch].blocks;
 	uint32_t control   = core->dma.channel[ch].control;
 
-	bool transfer_direction  = (control >> 0) & 1u; // 0 = to RAM, 1 = from RAM
+	bool transfer_to_port    = (control >> 0) & 1u; // 0 = to RAM, 1 = to DMA port
 	int  memory_address_step = (control >> 1) & 1u ? -4 : +4;
 	bool chopping_enabled    = (control >> 8) & 1u;
 	int  sync_mode           = (control >> 9) & 0x03;
@@ -70,34 +93,33 @@ static inline void dma_trigger(struct HakuyaCore *core, enum DMAChannelName ch) 
 	core->dma.channel[ch].control &= ~(1u << 28);
 
 	switch (sync_mode) {
-	case 0: {
-		uint32_t word_count = blocks & 0xFFFFu;
-		if (word_count == 0)
-			word_count = 0x10000u;
-		for (uint32_t i = 0; i < word_count; i++) {
-			uint32_t data = bus_read32(core, address);
-			dma_port_write(core, ch, data);
-			address += memory_address_step;
+	case SYNC_IMMEDIATE: case SYNC_BLOCKS: {
+		uint32_t transfer_length = dma_transfer_length(sync_mode, blocks);
+		if (transfer_to_port) {
+			for (uint32_t i = 0; i < transfer_length; i++) {
+				uint32_t data = bus_read32(core, address);
+				dma_port_write(core, ch, data);
+				address += memory_address_step;
+			}
+		} else {
+			for (uint32_t i = 0; i < transfer_length; i++) {
+				uint32_t data = dma_port_read(core, ch);
+				bus_write32(core, address, data);
+				address += memory_address_step;
+			}
 		}
 		break;
 	}
-	case 1: {
-		uint32_t block_size  = blocks & 0xFFFFu;
-		uint32_t block_count = blocks >> 16;
-		for (uint32_t i = 0; i < block_size * block_count; i++) {
-			uint32_t data = bus_read32(core, address);
-			dma_port_write(core, ch, data);
-			address += memory_address_step;
+	case SYNC_LINKED_LIST: {
+		if (!transfer_to_port) {
+			fprintf(stderr, "Error: Linked-list DMA to RAM isn't supported\n");
+			break;
 		}
-		break;
-	}
-	case 2: {
 		while (true) {
 			uint32_t header = bus_read32(core, address);
 			uint32_t word_count = header >> 24;
 			for (uint32_t i = 0; i < word_count; i++) {
 				uint32_t data = bus_read32(core, address + 4*(i+1));
-				printf("Sending %08X\n", data);
 				dma_port_write(core, ch, data);
 			}
 			address = header & 0x00FFFFFF;
@@ -107,8 +129,8 @@ static inline void dma_trigger(struct HakuyaCore *core, enum DMAChannelName ch) 
 		}
 		break;
 	}
-	case 3:
-		fprintf(stderr, "Unknown sync mode %d!\n", sync_mode);
+	case SYNC_UNUSED:
+		fprintf(stderr, "Error: DMA transfer with unknown sync mode %d\n", sync_mode);
 		break;
 	}
 

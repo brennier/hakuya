@@ -118,19 +118,21 @@ static inline void dma_trigger(struct HakuyaCore *core, enum DMAChannelName ch) 
 
 static inline void dma_maybe_trigger(struct HakuyaCore *core, enum DMAChannelName ch) {
 	uint32_t control_reg = core->dma.channel[ch].control;
+
+	bool start_busy_bit    = (control_reg >> 24) & 1u;
+	bool start_trigger_bit = (control_reg >> 28) & 1u;
+	int  sync_mode         = (control_reg >>  9) & 3u;
+	if (!start_busy_bit)
+		return;
+	if ((sync_mode == SYNC_IMMEDIATE) && !start_trigger_bit)
+		return;
+
 	switch (ch) {
-	case DMA_GPU:
-		if (control_reg & (1u << 24)) {
-			dma_trigger(core, DMA_GPU);
-		}
-		break;
-	case DMA_OTC:
-		if (control_reg & (1u << 28)) {
-			dma_trigger_otc(core);
-		}
-		break;
+	case DMA_GPU: dma_trigger(core, DMA_GPU); break;
+	case DMA_OTC: dma_trigger_otc(core);      break;
 	default:
 		fprintf(stderr, "Error: DMA transfers for channel %d aren't implemented yet!\n", ch);
+		break;
 	}
 }
 

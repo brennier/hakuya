@@ -25,6 +25,9 @@ static inline void dma_trigger_otc(struct HakuyaCore *core) {
 	printf("DMA OTC triggered: start %08X, size %08X\n",
 	       address, word_count);
 
+	// Clear the start/trigger bit when the transfer begins
+	core->dma.channel[DMA_OTC].control &= ~(1u << 28);
+
 	unsigned i = 0;
 	while (i < word_count) {
 		bus_write32(core, address, address - 4);
@@ -32,6 +35,9 @@ static inline void dma_trigger_otc(struct HakuyaCore *core) {
 		i++;
 	}
 	bus_write32(core, address + 4, 0x00FFFFFF);
+
+	// Clear the start/busy bit when the transfer ends
+	core->dma.channel[DMA_OTC].control &= ~(1u << 24);
 }
 
 static inline void dma_port_write(struct HakuyaCore *core, enum DMAChannelName ch, uint32_t data) {
@@ -46,29 +52,44 @@ static inline void dma_port_write(struct HakuyaCore *core, enum DMAChannelName c
 }
 
 static inline void dma_trigger(struct HakuyaCore *core, enum DMAChannelName ch) {
-	uint32_t address   = core->dma.channel[ch].start & 0x00FFFFFCu; // START
-	uint32_t blocks    = core->dma.channel[ch].blocks;              // BLOCKS
-	uint32_t control   = core->dma.channel[ch].control;             // CONTROL
+	uint32_t address   = core->dma.channel[ch].start & 0x00FFFFFCu;
+	uint32_t blocks    = core->dma.channel[ch].blocks;
+	uint32_t control   = core->dma.channel[ch].control;
 
-	uint32_t sync_mode = (control >> 9) & 0x03;
+	bool transfer_direction  = (control >> 0) & 1u; // 0 = to RAM, 1 = from RAM
+	int  memory_address_step = (control >> 1) & 1u ? -4 : +4;
+	bool chopping_enabled    = (control >> 8) & 1u;
+	int  sync_mode           = (control >> 9) & 0x03;
+
 	printf("DMA Channel %d triggered: start %08X mode %08X\n", ch, address, sync_mode);
+	if (chopping_enabled) {
+		fprintf(stderr, "Warning: A chopped DMA was started on channel %d, but isn't supported!\n", ch);
+	}
+
+	// Clear the start/trigger bit when the transfer begins
+	core->dma.channel[ch].control &= ~(1u << 28);
+
 	switch (sync_mode) {
 	case 0: {
 		uint32_t word_count = blocks & 0xFFFFu;
+		if (word_count == 0)
+			word_count = 0x10000u;
 		for (uint32_t i = 0; i < word_count; i++) {
-			uint32_t data = bus_read32(core, address + 4*i);
+			uint32_t data = bus_read32(core, address);
 			dma_port_write(core, ch, data);
+			address += memory_address_step;
 		}
-		return;
+		break;
 	}
 	case 1: {
 		uint32_t block_size  = blocks & 0xFFFFu;
 		uint32_t block_count = blocks >> 16;
 		for (uint32_t i = 0; i < block_size * block_count; i++) {
-			uint32_t data = bus_read32(core, address + 4*i);
+			uint32_t data = bus_read32(core, address);
 			dma_port_write(core, ch, data);
+			address += memory_address_step;
 		}
-		return;
+		break;
 	}
 	case 2: {
 		while (true) {
@@ -84,12 +105,15 @@ static inline void dma_trigger(struct HakuyaCore *core, enum DMAChannelName ch) 
 				break;
 			}
 		}
-		return;
+		break;
 	}
 	case 3:
 		fprintf(stderr, "Unknown sync mode %d!\n", sync_mode);
-		return;
+		break;
 	}
+
+	// Clear the start/busy bit when the transfer ends
+	core->dma.channel[ch].control &= ~(1u << 24);
 }
 
 static inline void dma_maybe_trigger(struct HakuyaCore *core, enum DMAChannelName ch) {
@@ -105,6 +129,8 @@ static inline void dma_maybe_trigger(struct HakuyaCore *core, enum DMAChannelNam
 			dma_trigger_otc(core);
 		}
 		break;
+	default:
+		fprintf(stderr, "Error: DMA transfers for channel %d aren't implemented yet!\n", ch);
 	}
 }
 
